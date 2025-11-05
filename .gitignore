@@ -1,0 +1,76 @@
+# ==============================
+# Python
+# ==============================
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+ENV/
+
+# Кэш и скомпилированные файлы Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+.pyre/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Логи
+logs/
+*.log
+
+# Локальные переменные окружения
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.test
+
+# Кэш KiloCode (если используется)
+.kilocode/
+
+# Папки с результатами (если генерируются)
+output/
+results/
+
+# Прочие временные/системные файлы
+*.tmp
+*.bak
+*.pid
+*.pid.lock
+
+# Файлы Excel, которые не должны попадать в репозиторий (опционально — закомментируйте, если нужно хранить)
+ *.xlsx
+ *.xls
+
+Материалы/СК_ТПХпродажи_1_пг_2025.xlsx
