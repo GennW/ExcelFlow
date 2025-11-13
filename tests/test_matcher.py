@@ -37,6 +37,9 @@ class TestMatcher(unittest.TestCase):
         
         # Проверяем результат
         self.assertEqual(result_df.iloc[0]['Рассчитанная себестоимость'], 15000.50)
+        self.assertEqual(result_df.iloc[0]['Стоимость закупки НЧТЗ 1 ед'], 14000.00)
+        self.assertEqual(result_df.iloc[0]['Прямая СС НЧТЗ 1 ед'], 15000.50)
+        self.assertEqual(result_df.iloc[0]['НР НЧТЗ 1 ед'], 14500.00)
         self.assertEqual(stats['level1_matches'], 1)
     
     def test_match_by_code_without_date(self):
@@ -66,6 +69,9 @@ class TestMatcher(unittest.TestCase):
         
         # Проверяем результат
         self.assertEqual(result_df.iloc[0]['Рассчитанная себестоимость'], 8250.75)
+        self.assertEqual(result_df.iloc[0]['Стоимость закупки НЧТЗ 1 ед'], 8000.00)
+        self.assertEqual(result_df.iloc[0]['Прямая СС НЧТЗ 1 ед'], 8250.75)
+        self.assertEqual(result_df.iloc[0]['НР НЧТЗ 1 ед'], 8100.00)
         self.assertEqual(stats['level2_matches'], 1)
     
     def test_no_match_manual_review(self):
@@ -95,6 +101,9 @@ class TestMatcher(unittest.TestCase):
         
         # Проверяем результат
         self.assertEqual(result_df.iloc[0]['Рассчитанная себестоимость'], '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*')
+        self.assertEqual(result_df.iloc[0]['Стоимость закупки НЧТЗ 1 ед'], '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*')
+        self.assertEqual(result_df.iloc[0]['Прямая СС НЧТЗ 1 ед'], '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*')
+        self.assertEqual(result_df.iloc[0]['НР НЧТЗ 1 ед'], '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*')
         self.assertEqual(stats['manual_checks'], 1)
 
 

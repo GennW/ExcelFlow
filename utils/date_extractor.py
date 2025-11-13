@@ -3,51 +3,49 @@ from datetime import datetime, timedelta
 from typing import Optional, Union
 import pandas as pd
 
-def extract_date_from_document(document: str) -> Optional[datetime]:
+def extract_date_from_document(document_text: str) -> Optional[datetime]:
     """
-    Извлекает дату из строки документа приобретения.
+    Извлекает дату из различных форматов документов.
     
-    :param document: Строка документа, например: "Реализация товаров и услуг 00КА-000135 от 20.01.2025 23:59:59"
+    :param document_text: Строка документа, например: "Реализация товаров и услуг 00КА-000135 от 20.01.2025 23:59:59"
     :return: Объект datetime или None, если дата не найдена
     """
-    if not document or pd.isna(document) or document == "":
+    if not document_text or pd.isna(document_text) or document_text == "":
         return None
     
-    # Регулярное выражение для извлечения даты в формате DD.MM.YYYY с опциональным временем
-    pattern = r'от\s+(\d{2}\.\d{2}\.\d{4})(?:\s+(\d{2}:\d{2}:\d{2}))?'
-    match = re.search(pattern, str(document))
+    patterns = [
+        r'Приобретение товаров и услуг.*?от\s+(\d{2}\.\d{2}\.\d{4})',
+        r'Внутренняя накладная.*?от\s+(\d{2}\.\d{2}\.\d{4})',
+        r'Реализация товаров и услуг.*?от\s+(\d{2}\.\d{2}\.\d{4})'
+    ]
     
-    if match:
-        date_str = match.group(1)
-        try:
-            return datetime.strptime(date_str, '%d.%m.%Y')
-        except ValueError:
-            return None
+    for pattern in patterns:
+        match = re.search(pattern, str(document_text))
+        if match:
+            date_str = match.group(1)
+            try:
+                return datetime.strptime(date_str, '%d.%m.%Y')
+            except ValueError:
+                continue
     
     return None
 
 
 def determine_quarter(date: Optional[datetime]) -> Optional[str]:
     """
-    Определяет квартал на основе даты.
+    Определяет квартал на основе даты в формате 'N квартал YYYY'.
     
     :param date: Объект datetime
-    :return: Строка в формате 'Q1', 'Q2', 'Q3', 'Q4' или None
+    :return: Строка в формате 'N квартал YYYY' или None
     """
     if date is None:
         return None
     
     month = date.month
-    if 1 <= month <= 3:
-        return 'Q1'
-    elif 4 <= month <= 6:
-        return 'Q2'
-    elif 7 <= month <= 9:
-        return 'Q3'
-    elif 10 <= month <= 12:
-        return 'Q4'
+    year = date.year
+    quarter_num = (month - 1) // 3 + 1
     
-    return None
+    return f"{quarter_num} квартал {year}"
 
 
 def parse_period_to_date_range(period_str: str) -> tuple:

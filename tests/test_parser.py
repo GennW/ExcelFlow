@@ -26,12 +26,15 @@ class TestParser(unittest.TestCase):
                 self.assertEqual(result, expected)
     
     def test_quarter_determination(self):
-        """Тест определения квартала по дате"""
+        """Тест корректного формата квартала"""
+        from datetime import datetime
         test_cases = [
-            (pd.Timestamp(2025, 2, 15), 'Q1'),
-            (pd.Timestamp(2025, 5, 15), 'Q2'),
-            (pd.Timestamp(2025, 8, 15), 'Q3'),
-            (pd.Timestamp(2025, 11, 15), 'Q4'),
+            (datetime(2024, 10, 11), "4 квартал 2024"),
+            (datetime(2024, 8, 29), "3 квартал 2024"),
+            (datetime(2025, 2, 15), "1 квартал 2025"),
+            (datetime(2025, 5, 15), "2 квартал 2025"),
+            (datetime(2025, 8, 15), "3 квартал 2025"),
+            (datetime(2025, 11, 15), "4 квартал 2025"),
             (None, None)
         ]
         
@@ -98,7 +101,7 @@ class TestParser(unittest.TestCase):
                 self.assertEqual(result_df.iloc[i]['Дата приобретения'], expected)
         
         # Проверяем определение квартала
-        expected_quarters = ['Q1', 'Q1', 'Q2', None, 'Q2']  # Q2 для даты реализации
+        expected_quarters = ['1 квартал 2025', '1 квартал 2025', '2 квартал 2025', None, '2 квартал 2025']  # Q2 для даты реализации
         for i, expected in enumerate(expected_quarters):
             self.assertEqual(result_df.iloc[i]['Квартал приобретения'], expected)
         

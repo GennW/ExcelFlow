@@ -86,10 +86,12 @@ def main():
         start_row = 2  # Пропускаем заголовки
         start_col = len(df_target.columns) + 1  # Начинаем с первой пустой колонки
         
-        # Добавляем заголовки новых столбцов
+        # Добавляем заголовки 5 новых столбцов
         ws.cell(row=1, column=start_col, value="Дата приобретения")
         ws.cell(row=1, column=start_col + 1, value="Квартал приобретения")
-        ws.cell(row=1, column=start_col + 2, value="Рассчитанная себестоимость")
+        ws.cell(row=1, column=start_col + 2, value="Стоимость закупки НЧТЗ 1 ед")
+        ws.cell(row=1, column=start_col + 3, value="Прямая СС НЧТЗ 1 ед")
+        ws.cell(row=1, column=start_col + 4, value="НР НЧТЗ 1 ед")
         
         # Заполняем данные
         for row_idx, row_data in df_result.iterrows():
@@ -105,7 +107,9 @@ def main():
                 
             ws.cell(row=row_idx + 2, column=start_col, value=date_str)
             ws.cell(row=row_idx + 2, column=start_col + 1, value=row_data['Квартал приобретения'])
-            ws.cell(row=row_idx + 2, column=start_col + 2, value=row_data['Рассчитанная себестоимость'])
+            ws.cell(row=row_idx + 2, column=start_col + 2, value=row_data.get('Стоимость закупки НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
+            ws.cell(row=row_idx + 2, column=start_col + 3, value=row_data.get('Прямая СС НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
+            ws.cell(row=row_idx + 2, column=start_col + 4, value=row_data.get('НР НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
         
         # Сохраняем в новый файл
         try:

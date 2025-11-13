@@ -24,8 +24,11 @@ class DataMatcher:
         # Создаем копию целевой таблицы
         df = df_target.copy()
         
-        # Добавляем столбец для рассчитанной себестоимости
+        # Добавляем столбцы для новых данных
         df['Рассчитанная себестоимость'] = ""
+        df['Стоимость закупки НЧТЗ 1 ед'] = ""
+        df['Прямая СС НЧТЗ 1 ед'] = ""
+        df['НР НЧТЗ 1 ед'] = ""
         
         # Статистика для отчета
         stats = {
@@ -98,6 +101,9 @@ class DataMatcher:
             # Отмечаем записи, требующие ручной проверки
             mask_manual = df_chunk['Рассчитанная себестоимость'] == ""
             df_chunk.loc[mask_manual, 'Рассчитанная себестоимость'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
+            df_chunk.loc[mask_manual, 'Стоимость закупки НЧТЗ 1 ед'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
+            df_chunk.loc[mask_manual, 'Прямая СС НЧТЗ 1 ед'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
+            df_chunk.loc[mask_manual, 'НР НЧТЗ 1 ед'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
             stats['manual_checks'] += int(mask_manual.sum())
             self.logger.info(f"Записей, требующих ручной проверки в части {start_idx//chunk_size + 1}: {int(mask_manual.sum())}")
             
@@ -124,9 +130,12 @@ class DataMatcher:
         # Создаем копию целевой таблицы
         df = df_target.copy()
         df['Рассчитанная себестоимость'] = ""
+        df['Стоимость закупки НЧТЗ 1 ед'] = ""
+        df['Прямая СС НЧТЗ 1 ед'] = ""
+        df['НР НЧТЗ 1 ед'] = ""
         
         # Проверяем наличие необходимых столбцов в df_source
-        required_cols = ['Номенклатура_норм', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая']
+        required_cols = ['Номенклатура_норм', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая', 'AQ', 'AR', 'AS']
         available_cols = [col for col in required_cols if col in df_source.columns]
         
         # Проверяем, что все необходимые столбцы присутствуют
@@ -178,6 +187,13 @@ class DataMatcher:
             cost = best_matches.loc[idx, 'cost']
             if pd.notna(cost):
                 df.loc[df_clean.index[idx], 'Рассчитанная себестоимость'] = cost
+                # Заполняем новые столбцы данными из соответствующих столбцов в df_source
+                if 'AQ' in df_source.columns:
+                    df.loc[df_clean.index[idx], 'Стоимость закупки НЧТЗ 1 ед'] = best_matches.loc[idx, 'AQ']
+                if 'AR' in df_source.columns:
+                    df.loc[df_clean.index[idx], 'Прямая СС НЧТЗ 1 ед'] = best_matches.loc[idx, 'AR']
+                if 'AS' in df_source.columns:
+                    df.loc[df_clean.index[idx], 'НР НЧТЗ 1 ед'] = best_matches.loc[idx, 'AS']
         
         # Логируем количество найденных совпадений
         matches_count = int((df['Рассчитанная себестоимость'] != "").sum())
@@ -196,6 +212,9 @@ class DataMatcher:
         # Создаем копию целевой таблицы
         df = df_target.copy()
         df['Рассчитанная себестоимость'] = ""
+        df['Стоимость закупки НЧТЗ 1 ед'] = ""
+        df['Прямая СС НЧТЗ 1 ед'] = ""
+        df['НР НЧТЗ 1 ед'] = ""
         
         # Проверяем наличие столбца контрагента
         if 'Контрагент_норм' not in df_source.columns:
@@ -270,6 +289,13 @@ class DataMatcher:
                         cost = row_data['cost']
                         if pd.notna(cost):
                             df.loc[idx, 'Рассчитанная себестоимость'] = cost
+                            # Заполняем новые столбцы данными из соответствующих столбцов в df_source
+                            if 'AQ' in df_source_filtered.columns:
+                                df.loc[idx, 'Стоимость закупки НЧТЗ 1 ед'] = row_data['AQ']
+                            if 'AR' in df_source_filtered.columns:
+                                df.loc[idx, 'Прямая СС НЧТЗ 1 ед'] = row_data['AR']
+                            if 'AS' in df_source_filtered.columns:
+                                df.loc[idx, 'НР НЧТЗ 1 ед'] = row_data['AS']
         
         # Затем ищем по номенклатуре для записей без стоимости
         mask_no_cost = df['Рассчитанная себестоимость'] == ""
@@ -358,6 +384,9 @@ class DataMatcher:
         # Создаем копию целевой таблицы
         df = df_target.copy()
         df['Рассчитанная себестоимость'] = ""
+        df['Стоимость закупки НЧТЗ 1 ед'] = ""
+        df['Прямая СС НЧТЗ 1 ед'] = ""
+        df['НР НЧТЗ 1 ед'] = ""
         
         # Применяем fuzzy matching только к записям с непустой номенклатурой и без стоимости
         mask_to_match = (df['Номенклатура_норм'].notna()) & (df['Номенклатура_норм'] != "") & (df['Рассчитанная себестоимость'] == "")
@@ -394,6 +423,13 @@ class DataMatcher:
                         cost = src_row['Прямая материальная составляющая'] if 'Прямая материальная составляющая' in src_row and pd.notna(src_row['Прямая материальная составляющая']) else None
                     if cost is not None:
                         df.loc[idx, 'Рассчитанная себестоимость'] = cost
+                        # Заполняем новые столбцы данными из соответствующих столбцов в df_source
+                        if 'AQ' in df_source.columns:
+                            df.loc[idx, 'Стоимость закупки НЧТЗ 1 ед'] = src_row['AQ']
+                        if 'AR' in df_source.columns:
+                            df.loc[idx, 'Прямая СС НЧТЗ 1 ед'] = src_row['AR']
+                        if 'AS' in df_source.columns:
+                            df.loc[idx, 'НР НЧТЗ 1 ед'] = src_row['AS']
             
             processed_count += 1
             if processed_count % 25 == 0 or processed_count == total_to_process:
@@ -409,47 +445,35 @@ class DataMatcher:
         
         return df
     
-    def _prioritize_matches(self, matches: List[Tuple[int, pd.Series]], target_date: Optional[pd.Timestamp] = None) -> List[Tuple[int, pd.Series]]:
+    def prioritize_candidates(self, candidates, target_date=None):
         """
-        Приоритизирует найденные совпадения по заданным критериям.
+        Выбирает лучшего кандидата по приоритету.
         
-        :param matches: Список совпадений в формате (индекс, строка)
+        :param candidates: Список кандидатов
         :param target_date: Целевая дата для сравнения (опционально)
-        :return: Отсортированный список совпадений
+        :return: Отсортированный список кандидатов
         """
-        def get_priority(match_tuple):
-            idx, row = match_tuple
-            
-            # Приоритеты:
-            # 1. Совпадение по всем трём параметрам (номенклатура + контрагент + период) - не применимо здесь
-            # 2. Совпадение по номенклатуре + периоду - для уровня 1
-            # 3. Совпадение по коду номенклатуры + периоду - для уровня 2
-            # 4. Наиболее близкая дата
-            # 5. Наименьшая стоимость закупки
-            
-            priority = 0
-            
-            # Если есть целевая дата, проверяем близость
-            if target_date and pd.notna(row.get('Период_начало')) and pd.notna(row.get('Период_конец')):
-                period_start = row['Период_начало']
-                period_end = row['Период_конец']
-                
-                # Если дата входит в период, это приоритет
-                if period_start <= target_date <= period_end:
-                    priority += 1000
-                
-                # Штраф за удалённость даты
-                mid_period = period_start + (period_end - period_start) / 2
-                date_diff = abs((target_date - mid_period).days)
-                priority -= date_diff  # Чем больше разница, тем ниже приоритет
-            
-            # Приоритет по стоимости (меньше - лучше)
-            cost = row.get('Стоимость закупки НЧТ', float('inf'))
-            if pd.notna(cost):
-                # Инвертируем, чтобы меньшая стоимость имела больший приоритет
-                priority -= cost / 100  # Нормализуем для баланса с другими приоритетами
-            
-            return priority
+        # Уровень 1: Все три параметра
+        level1 = [c for c in candidates if c['score']['all_three']]
+        if level1:
+            return sorted(level1, key=lambda x: x['AQ'], reverse=True)
         
-        # Сортируем по приоритету в порядке убывания
-        return sorted(matches, key=get_priority, reverse=True)
+        # Уровень 2: Номенклатура + период
+        level2 = [c for c in candidates if c['score']['nomenclature_period']]
+        if level2:
+            return sorted(level2, key=lambda x: x['AQ'], reverse=True)
+        
+        # Уровень 3: Код + период
+        level3 = [c for c in candidates if c['score']['code_period']]
+        if level3:
+            return sorted(level3, key=lambda x: x['AQ'], reverse=True)
+        
+        # Уровень 4: Близость даты
+        if target_date:
+            level4 = sorted(candidates, key=lambda x: abs((x['date'] - target_date).days))
+            closest = [c for c in level4 if abs((c['date'] - target_date).days) <= 7]
+            if closest:
+                return sorted(closest, key=lambda x: x['AQ'], reverse=True)
+        
+        # Уровень 5: Наибольшая цена закупки
+        return sorted(candidates, key=lambda x: x['AQ'], reverse=True)

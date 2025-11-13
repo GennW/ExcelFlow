@@ -22,30 +22,27 @@ def normalize_nomenclature(nomenclature: str) -> str:
     return nomenclature
 
 
-def extract_nomenclature_code(nomenclature: str) -> Optional[str]:
+def extract_nomenclature_code(nomenclature_text: str) -> Optional[str]:
     """
-    Извлекает код номенклатуры из строки.
+    Извлекает код номенклатуры из названия.
     
-    :param nomenclature: Строка номенклатуры
+    :param nomenclature_text: Строка номенклатуры
     :return: Код номенклатуры или None
     """
-    if pd.isna(nomenclature):
+    if not nomenclature_text:
         return None
     
-    nomenclature = str(nomenclature)
-    
-    # Регулярные выражения для различных форматов кодов
     patterns = [
-        r'([А-ЯЁ]+\.?\d+\.?\d+(?:-\d+)?)',  # Кириллические коды: ОНГ.216.00.000-01-032
-        r'([А-ЯЁ]{2}-[А-ЯЁ]{2}\.\d+)',            # Буквенно-цифровые коды: БК-Вр.114
-        r'(\d+\.\d+\.\d+(-\d+)*)',                # Числовые коды: 0.0.0-0.0-0-32.23.0-28
-        r'([А-ЯЁ]+\.\d+\.\d+(-\d+)*\.\d+)'        # Альтернативный формат: МШГРП.114.015-032-60,00
+        r'[А-ЯЁ]+\.\d+\.\d+\.\d+(?:-\d+)*',
+        r'[А-ЯЁ]+\.\d+\.\d+(?:-[\d\.,]+)*',
+        r'\d+\.\d+\.\d+(?:-.*)?',  # Ключевое изменение — поддержка сложных кодов
+        r'[А-ЯЁ]{2,4}-[А-ЯЁ]{2,4}\.\d+'
     ]
     
     for pattern in patterns:
-        match = re.search(pattern, nomenclature)
+        match = re.search(pattern, nomenclature_text)
         if match:
-            return match.group(1)
+            return match.group(0)
     
     return None
 

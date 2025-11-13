@@ -12,6 +12,27 @@ class TestDateExtractor(unittest.TestCase):
         result = extract_date_from_document(document)
         self.assertEqual(result, expected)
     
+    def test_extract_date_from_document_purchase_format(self):
+        """Тест извлечения даты из формата 'Приобретение товаров и услуг'"""
+        document = "Приобретение товаров и услуг 00КА-001861 от 28.06.2024 0:00:00"
+        expected = datetime(2024, 6, 28)
+        result = extract_date_from_document(document)
+        self.assertEqual(result, expected)
+    
+    def test_extract_date_from_document_internal_invoice_format(self):
+        """Тест извлечения даты из формата 'Внутренняя накладная'"""
+        document = "Внутренняя накладная 0КА-000054 от 31.12.2023 23:59:59"
+        expected = datetime(2023, 12, 31)
+        result = extract_date_from_document(document)
+        self.assertEqual(result, expected)
+    
+    def test_extract_date_from_document_sale_format(self):
+        """Тест извлечения даты из формата 'Реализация товаров и услуг'"""
+        document = "Реализация товаров и услуг 00КА-000135 от 20.01.2025 23:59:59"
+        expected = datetime(2025, 1, 20)
+        result = extract_date_from_document(document)
+        self.assertEqual(result, expected)
+    
     def test_extract_date_from_document_without_time(self):
         """Тест парсинга формата даты без времени"""
         document = "Реализация товаров и услуг 00КА-000135 от 15.02.2025"
@@ -34,25 +55,25 @@ class TestDateExtractor(unittest.TestCase):
         """Тест определения первого квартала"""
         date = datetime(2025, 2, 15)
         result = determine_quarter(date)
-        self.assertEqual(result, 'Q1')
+        self.assertEqual(result, '1 квартал 2025')
     
     def test_determine_quarter_q2(self):
         """Тест определения второго квартала"""
         date = datetime(2025, 5, 15)
         result = determine_quarter(date)
-        self.assertEqual(result, 'Q2')
+        self.assertEqual(result, '2 квартал 2025')
     
     def test_determine_quarter_q3(self):
         """Тест определения третьего квартала"""
         date = datetime(2025, 8, 15)
         result = determine_quarter(date)
-        self.assertEqual(result, 'Q3')
+        self.assertEqual(result, '3 квартал 2025')
     
     def test_determine_quarter_q4(self):
         """Тест определения четвертого квартала"""
         date = datetime(2025, 11, 15)
         result = determine_quarter(date)
-        self.assertEqual(result, 'Q4')
+        self.assertEqual(result, '4 квартал 2025')
     
     def test_determine_quarter_none_input(self):
         """Тест определения квартала для None"""
