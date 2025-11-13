@@ -94,8 +94,11 @@ def main():
         for row_idx, row_data in df_result.iterrows():
             # Форматируем дату приобретения
             acquisition_date = row_data['Дата приобретения']
-            if acquisition_date:
-                date_str = acquisition_date.strftime('%d.%m.%Y')
+            if pd.notna(acquisition_date) and acquisition_date is not pd.NaT:
+                try:
+                    date_str = acquisition_date.strftime('%d.%m.%Y')
+                except (ValueError, AttributeError):
+                    date_str = '*Дата не найдена*'
             else:
                 date_str = '*Дата не найдена*'
                 
@@ -111,6 +114,12 @@ def main():
             logger.error(f"Ошибка при сохранении файла: {str(e)}")
             import traceback
             logger.error(f"Детали ошибки сохранения: {traceback.format_exc()}")
+            # Всё равно пытаемся сохранить промежуточный результат при ошибке
+            try:
+                wb.save(args.output)
+                logger.info(f"Частичный результат сохранен: {args.output}")
+            except:
+                logger.error(f"Не удалось сохранить файл из-за ошибки: {str(e)}")
             sys.exit(6)
         
         # Логируем итоговую статистику
@@ -144,6 +153,12 @@ def main():
         logger.error(f"Ошибка при обработке: {str(e)}")
         import traceback
         logger.error(f"Детали ошибки: {traceback.format_exc()}")
+        # Всё равно пытаемся сохранить промежуточный результат при ошибке
+        try:
+            wb.save(args.output)
+            logger.info(f"Частичный результат сохранен: {args.output}")
+        except:
+            logger.error(f"Не удалось сохранить файл из-за ошибки: {str(e)}")
         sys.exit(5)
 
 

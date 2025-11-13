@@ -10,7 +10,7 @@ def extract_date_from_document(document: str) -> Optional[datetime]:
     :param document: Строка документа, например: "Реализация товаров и услуг 00КА-000135 от 20.01.2025 23:59:59"
     :return: Объект datetime или None, если дата не найдена
     """
-    if not document or pd.isna(document):
+    if not document or pd.isna(document) or document == "":
         return None
     
     # Регулярное выражение для извлечения даты в формате DD.MM.YYYY с опциональным временем
@@ -57,7 +57,7 @@ def parse_period_to_date_range(period_str: str) -> tuple:
     :param period_str: Строка периода, например: "Декабрь 2024 г."
     :return: Кортеж из двух дат (начало, конец) или None
     """
-    if not period_str:
+    if not period_str or pd.isna(period_str) or period_str == "":
         return None, None
     
     # Регулярное выражение для извлечения месяца и года
@@ -102,7 +102,7 @@ def extract_date_from_realization(realization_date: str) -> Optional[datetime]:
     :param realization_date: Строка даты реализации, например: "01.03.2025"
     :return: Объект datetime или None, если дата не найдена
     """
-    if not realization_date or pd.isna(realization_date):
+    if not realization_date or pd.isna(realization_date) or realization_date == "":
         return None
     
     # Попробуем разные форматы даты
