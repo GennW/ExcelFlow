@@ -2,7 +2,8 @@ import pandas as pd
 from typing import Tuple, Optional, List
 from utils.date_extractor import extract_date_from_document, determine_quarter, parse_period_to_date_range, extract_date_from_realization
 from utils.fuzzy_matcher import normalize_nomenclature, extract_nomenclature_code, fuzzy_match_candidates, partial_keyword_match, match_by_code
-from utils.logger_config import setup_logger
+from utils.logger_config import setup_logger, log_processing_progress
+import time
 
 class DataMatcher:
     """
@@ -41,185 +42,335 @@ class DataMatcher:
         doc_col_idx = 21  # Столбец V - документ приобретения
         real_col_idx = 3  # Столбец D - дата реализации
         
-        # Проходим по каждой строке целевой вкладки
-        for idx, row in df.iterrows():
-            # Проверяем наличие извлеченной даты приобретения
-            acquisition_date = row['Дата приобретения']
+        # Создаем временные столбцы для сопоставления
+        df['nom_key'] = df['Номенклатура_норм']
+        df['acquisition_quarter'] = df['Дата приобретения'].apply(determine_quarter)
+        df['realization_quarter'] = df['Дата реализации'].apply(determine_quarter)
+        df['acquisition_date'] = df['Дата приобретения']
+        df['realization_date'] = df['Дата реализации']
+        df['nom_code'] = df['Код номенклатуры']
+        
+        # Обработка по частям для больших файлов
+        chunk_size = 1000
+        total_rows = len(df)
+        self.logger.info(f"Начало сопоставления записей для {total_rows} строк (обработка по {chunk_size} строк)")
+        
+        for start_idx in range(0, total_rows, chunk_size):
+            end_idx = min(start_idx + chunk_size, total_rows)
+            df_chunk = df.iloc[start_idx:end_idx].copy()
             
-            if pd.notna(acquisition_date):
-                # Уровень 1: Сопоставление с датой
-                result = self._level1_match(row, df_source)
-                if result is not None:
-                    df.at[idx, 'Рассчитанная себестоимость'] = result
-                    stats['level1_matches'] += 1
-                else:
-                    # Если уровень 1 не дал результата, пробуем уровень 2
-                    result = self._level2_match(row, df_source)
-                    if result is not None:
-                        df.at[idx, 'Рассчитанная себестоимость'] = result
-                        stats['level2_matches'] += 1
-                    else:
-                        df.at[idx, 'Рассчитанная себестоимость'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
-                        stats['manual_checks'] += 1
-            else:
-                # Уровень 2: Сопоставление без даты
-                result = self._level2_match(row, df_source)
-                if result is not None:
-                    df.at[idx, 'Рассчитанная себестоимость'] = result
-                    stats['level2_matches'] += 1
-                else:
-                    # Если уровень 2 не дал результата, пробуем размытое сравнение
-                    result = self._fuzzy_match(row, df_source)
-                    if result is not None:
-                        df.at[idx, 'Рассчитанная себестоимость'] = result
-                        stats['fuzzy_matches'] += 1
-                    else:
-                        # Проверяем, есть ли ключевые данные
-                        nom_value = row.iloc[nom_col_idx] if nom_col_idx < len(row) else None
-                        doc_value = row.iloc[doc_col_idx] if doc_col_idx < len(row) else None
-                        real_value = row.iloc[real_col_idx] if real_col_idx < len(row) else None
-                        
-                        if pd.isna(nom_value) and pd.isna(extract_date_from_document(str(doc_value))) and pd.isna(extract_date_from_realization(str(real_value))):
-                            df.at[idx, 'Рассчитанная себестоимость'] = '*ОТСУТСТВУЮТ КЛЮЧЕВЫЕ ДАТЫ*'
-                            stats['missing_data'] += 1
-                        else:
-                            df.at[idx, 'Рассчитанная себестоимость'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
-                            stats['manual_checks'] += 1
+            # Уровень 1: Сопоставление с датой приобретения
+            mask_level1 = df_chunk['acquisition_date'].notna()
+            if mask_level1.any():
+                df_level1 = df_chunk[mask_level1].copy()
+                self.logger.info(f"Начало сопоставления уровня 1: {len(df_level1)} записей с датой приобретения (часть {start_idx//chunk_size + 1})")
+                matched_level1 = self._level1_match_vectorized(df_level1, df_source)
+                
+                # Обновляем результаты для уровня 1
+                df_chunk.loc[mask_level1, 'Рассчитанная себестоимость'] = matched_level1['Рассчитанная себестоимость'].values
+                stats['level1_matches'] += int((matched_level1['Рассчитанная себестоимость'] != "").sum())
+                self.logger.info(f"Сопоставление уровня 1 завершено: {int((matched_level1['Рассчитанная себестоимость'] != '').sum())} совпадений")
+            
+            # Уровень 2: Сопоставление без даты приобретения
+            mask_level2 = (df_chunk['acquisition_date'].isna()) & (df_chunk['Рассчитанная себестоимость'] == "")
+            if mask_level2.any():
+                df_level2 = df_chunk[mask_level2].copy()
+                self.logger.info(f"Начало сопоставления уровня 2: {len(df_level2)} записей без даты приобретения (часть {start_idx//chunk_size + 1})")
+                matched_level2 = self._level2_match_vectorized(df_level2, df_source)
+                
+                # Обновляем результаты для уровня 2
+                df_chunk.loc[mask_level2, 'Рассчитанная себестоимость'] = matched_level2['Рассчитанная себестоимость'].values
+                stats['level2_matches'] += int((matched_level2['Рассчитанная себестоимость'] != "").sum())
+                self.logger.info(f"Сопоставление уровня 2 завершено: {int((matched_level2['Рассчитанная себестоимость'] != '').sum())} совпадений")
+            
+            # Размытое сопоставление только для записей без совпадений
+            mask_fuzzy = (df_chunk['Рассчитанная себестоимость'] == "") & (df_chunk['Номенклатура_норм'].notna()) & (df_chunk['Номенклатура_норм'] != "")
+            if mask_fuzzy.any():
+                df_fuzzy = df_chunk[mask_fuzzy].copy()
+                self.logger.info(f"Начало размытого сопоставления: {len(df_fuzzy)} записей (часть {start_idx//chunk_size + 1})")
+                matched_fuzzy = self._fuzzy_match_vectorized(df_fuzzy, df_source)
+                
+                # Обновляем результаты для размытого сопоставления
+                df_chunk.loc[mask_fuzzy, 'Рассчитанная себестоимость'] = matched_fuzzy['Рассчитанная себестоимость'].values
+                stats['fuzzy_matches'] += int((matched_fuzzy['Рассчитанная себестоимость'] != "").sum())
+                self.logger.info(f"Размытое сопоставление завершено: {int((matched_fuzzy['Рассчитанная себестоимость'] != '').sum())} совпадений")
+            
+            # Отмечаем записи, требующие ручной проверки
+            mask_manual = df_chunk['Рассчитанная себестоимость'] == ""
+            df_chunk.loc[mask_manual, 'Рассчитанная себестоимость'] = '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'
+            stats['manual_checks'] += int(mask_manual.sum())
+            self.logger.info(f"Записей, требующих ручной проверки в части {start_idx//chunk_size + 1}: {int(mask_manual.sum())}")
+            
+            # Обновляем основной DataFrame
+            df.iloc[start_idx:end_idx] = df_chunk
+            
+            # Логируем прогресс
+            processed = min(end_idx, total_rows)
+            self.logger.info(f"Обработано {processed}/{total_rows} строк ({processed/total_rows*100:.1f}%)")
+        
+        # Удаляем временные столбцы
+        df = df.drop(columns=['nom_key', 'acquisition_quarter', 'realization_quarter', 'acquisition_date', 'realization_date', 'nom_code'])
         
         return df, stats
     
-    def _level1_match(self, row, df_source) -> Optional[float]:
+    def _level1_match_vectorized(self, df_target: pd.DataFrame, df_source: pd.DataFrame) -> pd.DataFrame:
         """
-        Сопоставление Уровня 1: По номенклатуре и периоду (с датой приобретения).
+        Векторизованное сопоставление Уровня 1: По номенклатуре и периоду (с датой приобретения).
         
-        :param row: Строка из целевой вкладки
+        :param df_target: DataFrame целевой вкладки
         :param df_source: DataFrame справочной вкладки
-        :return: Значение себестоимости или None
+        :return: DataFrame с обновленным столбцом "Рассчитанная себестоимость"
         """
-        # Извлекаем данные из строки
-        nom_value = row['Номенклатура_норм']
-        acquisition_date = row['Дата приобретения']
+        # Создаем копию целевой таблицы
+        df = df_target.copy()
+        df['Рассчитанная себестоимость'] = ""
         
-        if pd.isna(nom_value) or pd.isna(acquisition_date):
-            return None
+        # Проверяем наличие необходимых столбцов в df_source
+        required_cols = ['Номенклатура_норм', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая']
+        available_cols = [col for col in required_cols if col in df_source.columns]
         
-        # Фильтруем строки в справочной вкладке по периоду
-        matching_rows = []
-        for src_idx, src_row in df_source.iterrows():
-            period_start = src_row['Период_начало']
-            period_end = src_row['Период_конец']
-            
-            # Проверяем, попадает ли дата приобретения в период
-            if pd.notna(period_start) and pd.notna(period_end) and period_start <= acquisition_date <= period_end:
-                # Проверяем совпадение по номенклатуре
-                if src_row['Номенклатура_норм'] == nom_value:
-                    matching_rows.append((src_idx, src_row))
+        # Используем merge для векторизованного сопоставления
+        merged_df = pd.merge(
+            df[['Номенклатура_норм', 'Дата приобретения']].reset_index(),
+            df_source[available_cols],
+            on='Номенклатура_норм',
+            how='left'
+        )
         
-        # Если найдено несколько совпадений, применяем приоритизацию
-        if len(matching_rows) > 1:
-            matching_rows = self._prioritize_matches(matching_rows, acquisition_date)
+        # Фильтруем по дате приобретения в период
+        mask = (
+            (merged_df['Дата приобретения'].notna()) &
+            (merged_df['Период_начало'].notna()) &
+            (merged_df['Период_конец'].notna()) &
+            (merged_df['Дата приобретения'] >= merged_df['Период_начало']) &
+            (merged_df['Дата приобретения'] <= merged_df['Период_конец'])
+        )
+        filtered_merged = merged_df[mask]
         
-        # Возвращаем значение себестоимости из первого совпадения
-        if matching_rows:
-            _, src_row = matching_rows[0]
-            cost = src_row['Прямая СС на ед'] if 'Прямая СС на ед' in src_row and pd.notna(src_row['Прямая СС на ед']) else None
-            if cost is None:
-                cost = src_row['Прямая материальная составляющая'] if 'Прямая материальная составляющая' in src_row and pd.notna(src_row['Прямая материальная составляющая']) else None
-            return cost
+        # Выбираем лучшие совпадения (приоритезация)
+        filtered_merged = filtered_merged.sort_values(['index', 'Дата приобретения'])
+        best_matches = filtered_merged.groupby('index').first()
         
-        return None
+        # Извлекаем стоимость
+        if 'Прямая СС на ед' in df_source.columns and 'Прямая материальная составляющая' in df_source.columns:
+            best_matches['cost'] = best_matches['Прямая СС на ед'].fillna(best_matches['Прямая материальная составляющая'])
+        elif 'Прямая СС на ед' in df_source.columns:
+            best_matches['cost'] = best_matches['Прямая СС на ед']
+        elif 'Прямая материальная составляющая' in df_source.columns:
+            best_matches['cost'] = best_matches['Прямая материальная составляющая']
+        else:
+            # Если ни один из столбцов с себестоимостью не найден, создаем пустой столбец cost
+            best_matches['cost'] = pd.Series([None] * len(best_matches), index=best_matches.index)
+        
+        # Обновляем целевую таблицу
+        for idx in best_matches.index:
+            cost = best_matches.loc[idx, 'cost']
+            if pd.notna(cost):
+                df.loc[idx, 'Рассчитанная себестоимость'] = cost
+        
+        return df
     
-    def _level2_match(self, row, df_source) -> Optional[float]:
+    def _level2_match_vectorized(self, df_target: pd.DataFrame, df_source: pd.DataFrame) -> pd.DataFrame:
         """
-        Сопоставление Уровня 2: По коду номенклатуры и контрагенту (без даты приобретения).
+        Векторизованное сопоставление Уровня 2: По коду номенклатуры и контрагенту (без даты приобретения).
         
-        :param row: Строка из целевой вкладки
+        :param df_target: DataFrame целевой вкладки
         :param df_source: DataFrame справочной вкладки
-        :return: Значение себестоимости или None
+        :return: DataFrame с обновленным столбцом "Рассчитанная себестоимость"
         """
-        # Извлекаем данные из строки
-        nom_code = row['Код номенклатуры']
-        nom_value = row['Номенклатура_норм']
-        realization_date = row['Дата реализации']
+        # Создаем копию целевой таблицы
+        df = df_target.copy()
+        df['Рассчитанная себестоимость'] = ""
         
-        matching_rows = []
+        # Фильтруем справочную таблицу по контрагенту
+        df_source_filtered = df_source[
+            (df_source['Контрагент_норм'].str.contains('ск тпх|ск татпром-холдинг', na=False, case=False))
+        ].copy()
         
-        if nom_code:
-            # Поиск по коду номенклатуры
-            for src_idx, src_row in df_source.iterrows():
-                src_code = src_row['Код номенклатуры']
-                if src_code and nom_code in src_code:
-                    # Проверяем контрагента на наличие ключевых слов
-                    counterparty = src_row['Контрагент_норм'] if 'Контрагент_норм' in src_row else ""
-                    if 'ск тпх' in counterparty or 'ск татпром-холдинг' in counterparty:
-                        # Если есть дата реализации, проверяем период
-                        if pd.notna(realization_date):
-                            period_start = src_row['Период_начало']
-                            period_end = src_row['Период_конец']
-                            if pd.notna(period_start) and pd.notna(period_end) and period_start <= realization_date <= period_end:
-                                matching_rows.append((src_idx, src_row))
-                        else:
-                            matching_rows.append((src_idx, src_row))
+        if df_source_filtered.empty:
+            self.logger.warning("Не найдено записей с контрагентами СК ТПХ или СК Татпром-Холдинг")
+            return df
         
-        # Если не нашли по коду, пробуем по номенклатуре
-        if not matching_rows and nom_value:
-            for src_idx, src_row in df_source.iterrows():
-                # Проверяем контрагента на наличие ключевых слов
-                counterparty = src_row['Контрагент_норм'] if 'Контрагент_норм' in src_row else ""
-                if 'ск тпх' in counterparty or 'ск татпром-холдинг' in counterparty:
-                    # Если есть дата реализации, проверяем период
-                    if pd.notna(realization_date):
-                        period_start = src_row['Период_начало']
-                        period_end = src_row['Период_конец']
-                        if pd.notna(period_start) and pd.notna(period_end) and period_start <= realization_date <= period_end:
-                            if src_row['Номенклатура_норм'] == nom_value:
-                                matching_rows.append((src_idx, src_row))
-                    else:
-                        if src_row['Номенклатура_норм'] == nom_value:
-                            matching_rows.append((src_idx, src_row))
+        # Сначала ищем по коду номенклатуры
+        mask_with_code = df['Код номенклатуры'].notna()
+        if mask_with_code.any():
+            df_with_code = df[mask_with_code].copy()
+            if not df_with_code.empty:
+                # Проверяем наличие необходимых столбцов в df_source_filtered
+                required_cols = ['Код номенклатуры', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая', 'Номенклатура_норм']
+                available_cols = [col for col in required_cols if col in df_source_filtered.columns]
+                
+                # Создаем вспомогательный DataFrame для сопоставления по коду
+                merged_by_code = pd.merge(
+                    df_with_code[['Код номенклатуры', 'Дата реализации']].reset_index(),
+                    df_source_filtered[available_cols],
+                    on='Код номенклатуры',
+                    how='left',
+                    suffixes=('', '_source')
+                )
+                
+                # Фильтруем по дате реализации в период
+                mask_date = (
+                    (merged_by_code['Дата реализации'].notna()) &
+                    (merged_by_code['Период_начало'].notna()) &
+                    (merged_by_code['Период_конец'].notna()) &
+                    (merged_by_code['Дата реализации'] >= merged_by_code['Период_начало']) &
+                    (merged_by_code['Дата реализации'] <= merged_by_code['Период_конец'])
+                )
+                filtered_by_code = merged_by_code[mask_date]
+                
+                # Для записей без даты реализации
+                mask_no_date = (
+                    (merged_by_code['Дата реализации'].isna()) &
+                    (merged_by_code['Код номенклатуры'].notna())
+                )
+                no_date_matches = merged_by_code[mask_no_date]
+                
+                # Объединяем результаты
+                all_code_matches = pd.concat([filtered_by_code, no_date_matches], ignore_index=True)
+                all_code_matches = all_code_matches.drop_duplicates(subset=['index'], keep='first')
+                
+                # Извлекаем стоимость
+                if 'Прямая СС на ед' in df_source_filtered.columns and 'Прямая материальная составляющая' in df_source_filtered.columns:
+                    all_code_matches['cost'] = all_code_matches['Прямая СС на ед'].fillna(all_code_matches['Прямая материальная составляющая'])
+                elif 'Прямая СС на ед' in df_source_filtered.columns:
+                    all_code_matches['cost'] = all_code_matches['Прямая СС на ед']
+                elif 'Прямая материальная составляющая' in df_source_filtered.columns:
+                    all_code_matches['cost'] = all_code_matches['Прямая материальная составляющая']
+                else:
+                    # Если ни один из столбцов с себестоимостью не найден, создаем пустой столбец cost
+                    all_code_matches['cost'] = pd.Series([None] * len(all_code_matches), index=all_code_matches.index)
+                
+                # Обновляем целевую таблицу
+                for idx in all_code_matches['index']:
+                    row_data = all_code_matches[all_code_matches['index'] == idx].iloc[0]
+                    cost = row_data['cost']
+                    if pd.notna(cost):
+                        df.loc[idx, 'Рассчитанная себестоимость'] = cost
         
-        # Если найдено несколько совпадений, применяем приоритизацию
-        if len(matching_rows) > 1:
-            matching_rows = self._prioritize_matches(matching_rows, realization_date if pd.notna(realization_date) else None)
+        # Затем ищем по номенклатуре для записей без стоимости
+        mask_no_cost = df['Рассчитанная себестоимость'] == ""
+        if mask_no_cost.any():
+            df_no_cost = df[mask_no_cost].copy()
+            if not df_no_cost.empty:
+                # Проверяем наличие необходимых столбцов в df_source_filtered
+                required_cols = ['Номенклатура_норм', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая']
+                available_cols = [col for col in required_cols if col in df_source_filtered.columns]
+                
+                # Сопоставляем по номенклатуре
+                merged_df = pd.merge(
+                    df_no_cost[['Номенклатура_норм', 'Дата реализации']].reset_index(),
+                    df_source_filtered[available_cols],
+                    on='Номенклатура_норм',
+                    how='left'
+                )
+                
+                # Фильтруем по дате реализации в период
+                mask_date = (
+                    (merged_df['Дата реализации'].notna()) &
+                    (merged_df['Период_начало'].notna()) &
+                    (merged_df['Период_конец'].notna()) &
+                    (merged_df['Дата реализации'] >= merged_df['Период_начало']) &
+                    (merged_df['Дата реализации'] <= merged_df['Период_конец'])
+                )
+                filtered_merged = merged_df[mask_date]
+                
+                # Также добавляем совпадения без даты
+                if 'Прямая СС на ед' in df_source_filtered.columns and 'Прямая материальная составляющая' in df_source_filtered.columns:
+                    mask_no_date = (
+                        (merged_df['Дата реализации'].isna()) &
+                        (merged_df['Прямая СС на ед'].notna() | merged_df['Прямая материальная составляющая'].notna())
+                    )
+                elif 'Прямая СС на ед' in df_source_filtered.columns:
+                    mask_no_date = (
+                        (merged_df['Дата реализации'].isna()) &
+                        (merged_df['Прямая СС на ед'].notna())
+                    )
+                elif 'Прямая материальная составляющая' in df_source_filtered.columns:
+                    mask_no_date = (
+                        (merged_df['Дата реализации'].isna()) &
+                        (merged_df['Прямая материальная составляющая'].notna())
+                    )
+                else:
+                    mask_no_date = pd.Series([False] * len(merged_df))
+                
+                no_date_matches = merged_df[mask_no_date]
+                
+                # Объединяем оба результата
+                all_matches = pd.concat([filtered_merged, no_date_matches], ignore_index=True)
+                all_matches = all_matches.drop_duplicates(subset=['index'], keep='first')
+                
+                # Извлекаем стоимость
+                if 'Прямая СС на ед' in df_source_filtered.columns and 'Прямая материальная составляющая' in df_source_filtered.columns:
+                    all_matches['cost'] = all_matches['Прямая СС на ед'].fillna(all_matches['Прямая материальная составляющая'])
+                elif 'Прямая СС на ед' in df_source_filtered.columns:
+                    all_matches['cost'] = all_matches['Прямая СС на ед']
+                elif 'Прямая материальная составляющая' in df_source_filtered.columns:
+                    all_matches['cost'] = all_matches['Прямая материальная составляющая']
+                
+                # Обновляем целевую таблицу
+                for idx in all_matches['index']:
+                    row_data = all_matches[all_matches['index'] == idx].iloc[0]
+                    cost = row_data['cost']
+                    if pd.notna(cost):
+                        df.loc[idx, 'Рассчитанная себестоимость'] = cost
         
-        # Возвращаем значение себестоимости из первого совпадения
-        if matching_rows:
-            _, src_row = matching_rows[0]
-            cost = src_row['Прямая СС на ед'] if 'Прямая СС на ед' in src_row and pd.notna(src_row['Прямая СС на ед']) else None
-            if cost is None:
-                cost = src_row['Прямая материальная составляющая'] if 'Прямая материальная составляющая' in src_row and pd.notna(src_row['Прямая материальная составляющая']) else None
-            return cost
-        
-        return None
+        return df
     
-    def _fuzzy_match(self, row, df_source) -> Optional[float]:
+    def _fuzzy_match_vectorized(self, df_target: pd.DataFrame, df_source: pd.DataFrame) -> pd.DataFrame:
         """
-        Размытое сопоставление по номенклатуре.
+        Векторизованное размытое сопоставление по номенклатуре.
+        Применяется только к записям, для которых не найдено точных совпадений.
         
-        :param row: Строка из целевой вкладки
+        :param df_target: DataFrame целевой вкладки
         :param df_source: DataFrame справочной вкладки
-        :return: Значение себестоимости или None
+        :return: DataFrame с обновленным столбцом "Рассчитанная себестоимость"
         """
-        nom_value = row['Номенклатура_норм']
-        if pd.isna(nom_value):
-            return None
+        # Создаем копию целевой таблицы
+        df = df_target.copy()
+        df['Рассчитанная себестоимость'] = ""
         
-        # Используем fuzzy_match_candidates для поиска похожих номенклатур
-        matches = fuzzy_match_candidates(nom_value, df_source, 'Номенклатура_норм', threshold=0.6)
+        # Применяем fuzzy matching только к записям с непустой номенклатурой и без стоимости
+        mask_to_match = (df['Номенклатура_норм'].notna()) & (df['Номенклатура_норм'] != "") & (df['Рассчитанная себестоимость'] == "")
+        df_to_process = df[mask_to_match]
         
-        if matches:
-            # Берем лучшее совпадение
-            best_match_idx, similarity = matches[0]
-            src_row = df_source.iloc[best_match_idx]
+        if df_to_process.empty:
+            return df
+        
+        # Ограничиваем количество записей для fuzzy matching для производительности
+        if len(df_to_process) > 10:
+            self.logger.info(f"Ограничение размытого поиска до 100 записей из {len(df_to_process)}")
+            df_to_process = df_to_process.head(100)
+        
+        # Для каждой записи в целевой таблице ищем наиболее похожую в справочной
+        processed_count = 0
+        total_to_process = len(df_to_process)
+        for idx, row in df_to_process.iterrows():
+            nom_value = row['Номенклатура_норм']
+            if pd.isna(nom_value) or nom_value == "":
+                continue
             
-            # Проверяем, если коэффициент схожести выше 75%, считаем это успешным совпадением
-            if similarity >= 0.75:
-                cost = src_row['Прямая СС на ед'] if 'Прямая СС на ед' in src_row and pd.notna(src_row['Прямая СС на ед']) else None
-                if cost is None:
-                    cost = src_row['Прямая материальная составляющая'] if 'Прямая материальная составляющая' in src_row and pd.notna(src_row['Прямая материальная составляющая']) else None
-                return cost
+            # Используем fuzzy_match_candidates для поиска похожих номенклатур
+            matches = fuzzy_match_candidates(nom_value, df_source, 'Номенклатура_норм', threshold=0.6)
+            
+            if matches:
+                # Берем лучшее совпадение
+                best_match_idx, similarity = matches[0]
+                src_row = df_source.iloc[best_match_idx]
+                
+                # Проверяем, если коэффициент схожести выше 75%, считаем это успешным совпадением
+                if similarity >= 0.75:
+                    cost = src_row['Прямая СС на ед'] if 'Прямая СС на ед' in src_row and pd.notna(src_row['Прямая СС на ед']) else None
+                    if cost is None:
+                        cost = src_row['Прямая материальная составляющая'] if 'Прямая материальная составляющая' in src_row and pd.notna(src_row['Прямая материальная составляющая']) else None
+                    if cost is not None:
+                        df.loc[idx, 'Рассчитанная себестоимость'] = cost
+            
+            processed_count += 1
+            if processed_count % 25 == 0 or processed_count == total_to_process:
+                self.logger.info(f"Размытое сопоставление: {processed_count}/{total_to_process} ({processed_count/total_to_process*100:.1f}%)")
         
-        return None
+        return df
     
     def _prioritize_matches(self, matches: List[Tuple[int, pd.Series]], target_date: Optional[pd.Timestamp] = None) -> List[Tuple[int, pd.Series]]:
         """

@@ -118,6 +118,13 @@ def main():
         matched_records = total_records - stats['manual_checks'] - stats['missing_data']
         
         processing_time = time.time() - start_time
+        
+        # Добавляем мониторинг производительности
+        import psutil
+        import os
+        memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # в МБ
+        logger.info(f"Использование памяти в конце обработки: {memory_usage:.2f} MB")
+        
         log_final_stats(
             logger,
             total_records=total_records,
