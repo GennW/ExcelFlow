@@ -104,8 +104,14 @@ def main():
             ws.cell(row=row_idx + 2, column=start_col + 2, value=row_data['Рассчитанная себестоимость'])
         
         # Сохраняем в новый файл
-        wb.save(args.output)
-        logger.info(f"Файл успешно сохранен: {args.output}")
+        try:
+            wb.save(args.output)
+            logger.info(f"Файл успешно сохранен: {args.output}")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении файла: {str(e)}")
+            import traceback
+            logger.error(f"Детали ошибки сохранения: {traceback.format_exc()}")
+            sys.exit(6)
         
         # Логируем итоговую статистику
         total_records = len(df_target)
