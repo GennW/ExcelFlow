@@ -6,6 +6,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+import pandas as pd
 
 from processors.data_loader import DataLoader
 from processors.parser import DataParser
