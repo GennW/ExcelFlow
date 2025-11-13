@@ -1,0 +1,4 @@
+git status
+git add .
+git commit -m "анализ БД для обновления поступающей информации"
+git push
