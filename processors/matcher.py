@@ -135,7 +135,7 @@ class DataMatcher:
         df['НР НЧТЗ 1 ед'] = ""
         
         # Проверяем наличие необходимых столбцов в df_source
-        required_cols = ['Номенклатура_норм', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая', 'AQ', 'AR', 'AS']
+        required_cols = ['Номенклатура_норм', 'Период_начало', 'Период_конец', 'Прямая СС на ед', 'Прямая материальная составляющая', 'Стоимость закупки НЧТ', 'Прямая СС на ед', 'Прямая материальная составляющая']
         available_cols = [col for col in required_cols if col in df_source.columns]
         
         # Проверяем, что все необходимые столбцы присутствуют
@@ -188,12 +188,12 @@ class DataMatcher:
             if pd.notna(cost):
                 df.loc[df_clean.index[idx], 'Рассчитанная себестоимость'] = cost
                 # Заполняем новые столбцы данными из соответствующих столбцов в df_source
-                if 'AQ' in df_source.columns:
-                    df.loc[df_clean.index[idx], 'Стоимость закупки НЧТЗ 1 ед'] = best_matches.loc[idx, 'AQ']
-                if 'AR' in df_source.columns:
-                    df.loc[df_clean.index[idx], 'Прямая СС НЧТЗ 1 ед'] = best_matches.loc[idx, 'AR']
-                if 'AS' in df_source.columns:
-                    df.loc[df_clean.index[idx], 'НР НЧТЗ 1 ед'] = best_matches.loc[idx, 'AS']
+                if 'Стоимость закупки НЧТ' in df_source.columns:
+                    df.loc[df_clean.index[idx], 'Стоимость закупки НЧТЗ 1 ед'] = best_matches.loc[idx, 'Стоимость закупки НЧТ']
+                if 'Прямая СС на ед' in df_source.columns:
+                    df.loc[df_clean.index[idx], 'Прямая СС НЧТЗ 1 ед'] = best_matches.loc[idx, 'Прямая СС на ед']
+                if 'Прямая материальная составляющая' in df_source.columns:
+                    df.loc[df_clean.index[idx], 'НР НЧТЗ 1 ед'] = best_matches.loc[idx, 'Прямая материальная составляющая']
         
         # Логируем количество найденных совпадений
         matches_count = int((df['Рассчитанная себестоимость'] != "").sum())
@@ -290,12 +290,12 @@ class DataMatcher:
                         if pd.notna(cost):
                             df.loc[idx, 'Рассчитанная себестоимость'] = cost
                             # Заполняем новые столбцы данными из соответствующих столбцов в df_source
-                            if 'AQ' in df_source_filtered.columns:
-                                df.loc[idx, 'Стоимость закупки НЧТЗ 1 ед'] = row_data['AQ']
-                            if 'AR' in df_source_filtered.columns:
-                                df.loc[idx, 'Прямая СС НЧТЗ 1 ед'] = row_data['AR']
-                            if 'AS' in df_source_filtered.columns:
-                                df.loc[idx, 'НР НЧТЗ 1 ед'] = row_data['AS']
+                            if 'Стоимость закупки НЧТ' in df_source_filtered.columns:
+                                df.loc[idx, 'Стоимость закупки НЧТЗ 1 ед'] = row_data['Стоимость закупки НЧТ']
+                            if 'Прямая СС на ед' in df_source_filtered.columns:
+                                df.loc[idx, 'Прямая СС НЧТЗ 1 ед'] = row_data['Прямая СС на ед']
+                            if 'Прямая материальная составляющая' in df_source_filtered.columns:
+                                df.loc[idx, 'НР НЧТЗ 1 ед'] = row_data['Прямая материальная составляющая']
         
         # Затем ищем по номенклатуре для записей без стоимости
         mask_no_cost = df['Рассчитанная себестоимость'] == ""
@@ -424,12 +424,12 @@ class DataMatcher:
                     if cost is not None:
                         df.loc[idx, 'Рассчитанная себестоимость'] = cost
                         # Заполняем новые столбцы данными из соответствующих столбцов в df_source
-                        if 'AQ' in df_source.columns:
-                            df.loc[idx, 'Стоимость закупки НЧТЗ 1 ед'] = src_row['AQ']
-                        if 'AR' in df_source.columns:
-                            df.loc[idx, 'Прямая СС НЧТЗ 1 ед'] = src_row['AR']
-                        if 'AS' in df_source.columns:
-                            df.loc[idx, 'НР НЧТЗ 1 ед'] = src_row['AS']
+                        if 'Стоимость закупки НЧТ' in df_source.columns:
+                            df.loc[idx, 'Стоимость закупки НЧТЗ 1 ед'] = src_row['Стоимость закупки НЧТ']
+                        if 'Прямая СС на ед' in df_source.columns:
+                            df.loc[idx, 'Прямая СС НЧТЗ 1 ед'] = src_row['Прямая СС на ед']
+                        if 'Прямая материальная составляющая' in df_source.columns:
+                            df.loc[idx, 'НР НЧТЗ 1 ед'] = src_row['Прямая материальная составляющая']
             
             processed_count += 1
             if processed_count % 25 == 0 or processed_count == total_to_process:
@@ -456,24 +456,24 @@ class DataMatcher:
         # Уровень 1: Все три параметра
         level1 = [c for c in candidates if c['score']['all_three']]
         if level1:
-            return sorted(level1, key=lambda x: x['AQ'], reverse=True)
-        
+            return sorted(level1, key=lambda x: x['Стоимость закупки НЧТ'], reverse=True)
+       
         # Уровень 2: Номенклатура + период
         level2 = [c for c in candidates if c['score']['nomenclature_period']]
         if level2:
-            return sorted(level2, key=lambda x: x['AQ'], reverse=True)
-        
+            return sorted(level2, key=lambda x: x['Стоимость закупки НЧТ'], reverse=True)
+       
         # Уровень 3: Код + период
         level3 = [c for c in candidates if c['score']['code_period']]
         if level3:
-            return sorted(level3, key=lambda x: x['AQ'], reverse=True)
-        
+            return sorted(level3, key=lambda x: x['Стоимость закупки НЧТ'], reverse=True)
+       
         # Уровень 4: Близость даты
         if target_date:
             level4 = sorted(candidates, key=lambda x: abs((x['date'] - target_date).days))
             closest = [c for c in level4 if abs((c['date'] - target_date).days) <= 7]
             if closest:
-                return sorted(closest, key=lambda x: x['AQ'], reverse=True)
-        
+                return sorted(closest, key=lambda x: x['Стоимость закупки НЧТ'], reverse=True)
+       
         # Уровень 5: Наибольшая цена закупки
-        return sorted(candidates, key=lambda x: x['AQ'], reverse=True)
+        return sorted(candidates, key=lambda x: x['Стоимость закупки НЧТ'], reverse=True)

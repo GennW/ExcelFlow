@@ -2,6 +2,7 @@
 """
 Точка входа в приложение ExcelFlow
 """
+from utils.date_extractor import determine_quarter
 import argparse
 import sys
 import time
@@ -106,7 +107,10 @@ def main():
                 date_str = '*Дата не найдена*'
                 
             ws.cell(row=row_idx + 2, column=start_col, value=date_str)
-            ws.cell(row=row_idx + 2, column=start_col + 1, value=row_data['Квартал приобретения'])
+            # Используем determine_quarter для получения правильного формата квартала
+            quarter_str = determine_quarter(row_data['Дата приобретения']) if pd.notna(row_data['Дата приобретения']) and row_data['Дата приобретения'] is not pd.NaT else ''
+            print(f"Дата приобретения: {row_data['Дата приобретения']}, Квартал: {quarter_str}")
+            ws.cell(row=row_idx + 2, column=start_col + 1, value=quarter_str)
             ws.cell(row=row_idx + 2, column=start_col + 2, value=row_data.get('Стоимость закупки НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
             ws.cell(row=row_idx + 2, column=start_col + 3, value=row_data.get('Прямая СС НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
             ws.cell(row=row_idx + 2, column=start_col + 4, value=row_data.get('НР НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
