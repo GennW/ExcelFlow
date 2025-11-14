@@ -1,23 +1,30 @@
-"""Утилиты для работы с датами"""
+"""Работа с датами"""
 import re
 from datetime import datetime
 from typing import Optional
 import pandas as pd
+import logging
+from config import PSTR_START, PSTR_LENGTH, DATE_FORMAT_OUTPUT
 
-def extract_date_pstr(text: str, start: int = 44, length: int = 10) -> Optional[datetime]:
-    if not text or pd.isna(text) or len(str(text)) < start + length:
+logger = logging.getLogger(__name__)
+
+def extract_date_pstr(text: str) -> Optional[datetime]:
+    if not text or pd.isna(text):
+        return None
+    text_str = str(text)
+    if len(text_str) < PSTR_START + PSTR_LENGTH:
         return None
     try:
-        text_str = str(text)
-        date_str = text_str[start:start + length]
-        return datetime.strptime(date_str, '%d.%m.%Y')
+        date_str = text_str[PSTR_START:PSTR_START + PSTR_LENGTH]
+        date_obj = datetime.strptime(date_str, '%d.%m.%Y')
+        return date_obj
     except (ValueError, IndexError):
         return None
 
 def extract_date_regex(text: str) -> Optional[datetime]:
     if not text or pd.isna(text):
         return None
-    patterns = [r'от\s+(\d{2}\.\d{2}\.\d{4})', r'от\s+(\d{2}\.\d{2}\.\d{4})\s+\d{1,2}:\d{2}:\d{2}']
+    patterns = [r'от\s+(\d{2}\.\d{2}\.\d{4})']
     text_str = str(text)
     for pattern in patterns:
         match = re.search(pattern, text_str)
@@ -29,6 +36,8 @@ def extract_date_regex(text: str) -> Optional[datetime]:
     return None
 
 def extract_acquisition_date(document_text: str) -> Optional[datetime]:
+    if not document_text or pd.isna(document_text):
+        return None
     date = extract_date_pstr(document_text)
     if date:
         return date

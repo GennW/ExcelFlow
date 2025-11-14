@@ -5,3 +5,5 @@ venv/
 *.xls
 *.log
 .DS_Store
+результат*.xlsx
+*_comparison_report.txt

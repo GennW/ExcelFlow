@@ -1,35 +1,45 @@
-"""
-Конфигурация приложения ExcelCostCalculator
-"""
+"""Конфигурация ExcelCostCalculator"""
 
-# Целевая таблица "СК ТПХ_1 пг"
+# Индексы столбцов (начиная с 0)
 TARGET_COLUMNS = {
-    'NOMENCLATURE': 18,
-    'DOCUMENT': 21,
+    'NOMENCLATURE': 18,  # Столбец S
+    'DOCUMENT': 21        # Столбец V
 }
 
-# Справочная таблица "ВП 2024-2025 НЧТЗ"
 SOURCE_COLUMNS = {
-    'QUANTITY': 13,
-    'COST_Q': 16,
-    'COST_R': 17,
-    'COST_X': 23,
-    'NOMENCLATURE': 41,
-    'PERIOD_QUARTER': 45,
+    'QUANTITY': 13,         # Столбец N
+    'COST_Q': 16,          # Столбец Q
+    'COST_R': 17,          # Столбец R
+    'COST_X': 23,          # Столбец X
+    'NOMENCLATURE': 41,    # Столбец AP
+    'PERIOD_QUARTER': 45   # Столбец AT
 }
 
 SHEET_NAMES = {
     'TARGET': 'СК ТПХ_1 пг',
-    'SOURCE': 'ВП 2024-2025 НЧТЗ',
+    'SOURCE': 'ВП 2024-2025 НЧТЗ'
 }
 
+# Форматы
 DATE_FORMAT_OUTPUT = '%d.%m.%Y'
-DATE_FORMAT_INPUT = '%d.%m.%Y'
 PSTR_START = 44
 PSTR_LENGTH = 10
 
+# Коды ошибок
+ERROR_CODES = {
+    'DATE_NOT_FOUND': '#НД',
+    'MANUAL_CHECK': '#РП',
+}
+
+ERROR_DESCRIPTIONS = {
+    '#НД': 'Дата не найдена в документе',
+    '#РП': 'Требует ручной проверки - нет совпадений в справочнике',
+}
+
+# Логирование
 LOG_FORMAT = '[%(asctime)s] %(levelname)s: %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
+# Обработка
 DEFAULT_CHUNK_SIZE = 500
 GC_INTERVAL = 5

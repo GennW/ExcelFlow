@@ -1,4 +1,4 @@
-"""Настройка логирования"""
+"""Логирование"""
 import logging
 import sys
 from config import LOG_FORMAT, LOG_DATE_FORMAT
