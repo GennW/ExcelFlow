@@ -1,175 +1,179 @@
-#!/usr/bin/env python3
-"""
-Точка входа в приложение ExcelFlow
-"""
-from utils.date_extractor import determine_quarter
+"""Точка входа в приложение ExcelCostCalculator v2"""
 import argparse
 import sys
-import time
+import gc
 from pathlib import Path
 import pandas as pd
+from datetime import datetime
 
-from processors.data_loader import DataLoader
-from processors.parser import DataParser
-from processors.matcher import DataMatcher
-from utils.logger_config import setup_logger, log_application_start, log_sheet_info, log_processing_progress, log_final_stats
+from config import TARGET_COLUMNS, SOURCE_COLUMNS, SHEET_NAMES, DATE_FORMAT_OUTPUT, DEFAULT_CHUNK_SIZE, GC_INTERVAL
+from core import load_excel_file, FormulaEngine, write_results
+from utils import extract_acquisition_date, determine_quarter, setup_logger, get_logger, DataComparison
 
+def get_memory_usage():
+    try:
+        import psutil
+        process = psutil.Process()
+        return process.memory_info().rss / 1024 / 1024
+    except ImportError:
+        return 0
+
+def process_chunk(df_chunk, engine, chunk_start_idx, logger):
+    success_count = 0
+    error_count = 0
+
+    for idx in range(len(df_chunk)):
+        global_idx = chunk_start_idx + idx
+        document_text = df_chunk.iloc[idx, TARGET_COLUMNS['DOCUMENT']]
+        nomenclature = df_chunk.iloc[idx, TARGET_COLUMNS['NOMENCLATURE']]
+        acquisition_date = extract_acquisition_date(document_text)
+
+        if not acquisition_date:
+            logger.debug(f"Строка {global_idx+2}: Не удалось извлечь дату")
+            df_chunk.at[df_chunk.index[idx], 'AO_Дата_приобретения'] = "*Дата не найдена*"
+            df_chunk.at[df_chunk.index[idx], 'AP_Квартал_приобретения'] = ""
+            df_chunk.at[df_chunk.index[idx], 'AQ_Стоимость_закупки'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            df_chunk.at[df_chunk.index[idx], 'AR_Прямая_СС'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            df_chunk.at[df_chunk.index[idx], 'AS_НР'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            error_count += 1
+            continue
+
+        df_chunk.at[df_chunk.index[idx], 'AO_Дата_приобретения'] = acquisition_date.strftime(DATE_FORMAT_OUTPUT)
+        quarter = determine_quarter(acquisition_date)
+        df_chunk.at[df_chunk.index[idx], 'AP_Квартал_приобретения'] = quarter
+
+        aq = engine.calculate_aq(nomenclature, quarter)
+        ar = engine.calculate_ar(nomenclature, quarter)
+        as_val = engine.calculate_as(nomenclature, quarter)
+
+        if aq is not None:
+            df_chunk.at[df_chunk.index[idx], 'AQ_Стоимость_закупки'] = aq
+            df_chunk.at[df_chunk.index[idx], 'AR_Прямая_СС'] = ar
+            df_chunk.at[df_chunk.index[idx], 'AS_НР'] = as_val
+            success_count += 1
+        else:
+            logger.debug(f"Строка {global_idx+2}: Нет совпадений")
+            df_chunk.at[df_chunk.index[idx], 'AQ_Стоимость_закупки'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            df_chunk.at[df_chunk.index[idx], 'AR_Прямая_СС'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            df_chunk.at[df_chunk.index[idx], 'AS_НР'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            error_count += 1
+
+    return df_chunk, success_count, error_count
 
 def main():
-    parser = argparse.ArgumentParser(description='Приложение для анализа и сопоставления данных Excel')
-    parser.add_argument('--input', required=True, help='Путь к входному Excel-файлу')
-    parser.add_argument('--output', required=True, help='Путь к выходному Excel-файлу')
-    parser.add_argument('--source-sheet', default='ВП 2024-2025 НЧТЗ', help='Имя вкладки-справочника')
-    parser.add_argument('--target-sheet', default='СК ТПХ_1 пг', help='Имя вкладки для обработки')
-    parser.add_argument('--log-level', default='INFO', help='Уровень логирования (DEBUG, INFO, WARNING, ERROR)')
-    parser.add_argument('--report-file', help='Путь к файлу отчёта о несопоставленных записях')
-    
+    parser = argparse.ArgumentParser(description='ExcelCostCalculator v2')
+    parser.add_argument('--input', required=True, help='Входной Excel-файл')
+    parser.add_argument('--output', required=True, help='Выходной Excel-файл')
+    parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
+    parser.add_argument('--chunk-size', type=int, default=DEFAULT_CHUNK_SIZE)
+    parser.add_argument('--compare', action='store_true', help='Сравнить с эталонными данными')
+
     args = parser.parse_args()
-    
-    # Проверяем, что входной файл существует
+    setup_logger(args.log_level)
+    logger = get_logger(__name__)
+
     input_path = Path(args.input)
     if not input_path.exists():
-        print(f"Файл не найден: {args.input}")
+        logger.error(f"Файл не найден: {args.input}")
         sys.exit(1)
-    
-    # Настраиваем логгер
-    logger = setup_logger(log_level=args.log_level)
-    
-    # Логируем начало работы
-    log_application_start(logger, input_file=args.input, output_file=args.output)
-    
-    # Запоминаем время начала
-    start_time = time.time()
-    
-    try:
-        # Загружаем данные
-        loader = DataLoader(logger)
-        df_dict = loader.load_excel_file(args.input)
-        
-        # Логируем информацию о вкладках
-        sheet_counts = {sheet: len(df) for sheet, df in df_dict.items()}
-        log_sheet_info(logger, list(df_dict.keys()), sheet_counts)
-        
-        # Парсим и нормализуем данные
-        parser = DataParser(logger)
-        df_target = df_dict[args.target_sheet]
-        df_source = df_dict[args.source_sheet]
-        
-        logger.info("Начало обработки целевой вкладки...")
-        df_target_processed = parser.parse_target_sheet(df_target)
-        
-        logger.info("Начало обработки справочной вкладки...")
-        df_source_processed = parser.parse_source_sheet(df_source)
-        
-        # Сопоставляем записи
-        matcher = DataMatcher(logger)
-        logger.info("Начало сопоставления записей...")
-        
-        df_result, stats = matcher.match_records(df_target_processed, df_source_processed)
-        
-        # Обновляем словарь с DataFrame
-        df_dict[args.target_sheet] = df_result
-        
-        # Сохраняем результат
-        logger.info(f"Сохранение результата в файл: {args.output}")
-        
-        # Используем openpyxl для сохранения с сохранением форматирования
-        from openpyxl import load_workbook
-        from openpyxl.utils.dataframe import dataframe_to_rows
-        
-        # Загружаем исходный файл для сохранения форматирования
-        wb = load_workbook(args.input)
-        
-        # Обновляем целевую вкладку
-        ws = wb[args.target_sheet]
-        
-        # Определяем диапазон для вставки новых данных
-        start_row = 2  # Пропускаем заголовки
-        start_col = len(df_target.columns) + 1  # Начинаем с первой пустой колонки
-        
-        # Добавляем заголовки 5 новых столбцов
-        ws.cell(row=1, column=start_col, value="Дата приобретения")
-        ws.cell(row=1, column=start_col + 1, value="Квартал приобретения")
-        ws.cell(row=1, column=start_col + 2, value="Стоимость закупки НЧТЗ 1 ед")
-        ws.cell(row=1, column=start_col + 3, value="Прямая СС НЧТЗ 1 ед")
-        ws.cell(row=1, column=start_col + 4, value="НР НЧТЗ 1 ед")
-        
-        # Заполняем данные
-        for row_idx, row_data in df_result.iterrows():
-            # Форматируем дату приобретения
-            acquisition_date = row_data['Дата приобретения']
-            if pd.notna(acquisition_date) and acquisition_date is not pd.NaT:
-                try:
-                    date_str = acquisition_date.strftime('%d.%m.%Y')
-                except (ValueError, AttributeError):
-                    date_str = '*Дата не найдена*'
-            else:
-                date_str = '*Дата не найдена*'
-                
-            ws.cell(row=row_idx + 2, column=start_col, value=date_str)
-            # Используем determine_quarter для получения правильного формата квартала
-            quarter_str = determine_quarter(row_data['Дата приобретения']) if pd.notna(row_data['Дата приобретения']) and row_data['Дата приобретения'] is not pd.NaT else ''
-            print(f"Дата приобретения: {row_data['Дата приобретения']}, Квартал: {quarter_str}")
-            ws.cell(row=row_idx + 2, column=start_col + 1, value=quarter_str)
-            ws.cell(row=row_idx + 2, column=start_col + 2, value=row_data.get('Стоимость закупки НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
-            ws.cell(row=row_idx + 2, column=start_col + 3, value=row_data.get('Прямая СС НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
-            ws.cell(row=row_idx + 2, column=start_col + 4, value=row_data.get('НР НЧТЗ 1 ед', '*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*'))
-        
-        # Сохраняем в новый файл
-        try:
-            wb.save(args.output)
-            logger.info(f"Файл успешно сохранен: {args.output}")
-        except Exception as e:
-            logger.error(f"Ошибка при сохранении файла: {str(e)}")
-            import traceback
-            logger.error(f"Детали ошибки сохранения: {traceback.format_exc()}")
-            # Всё равно пытаемся сохранить промежуточный результат при ошибке
-            try:
-                wb.save(args.output)
-                logger.info(f"Частичный результат сохранен: {args.output}")
-            except:
-                logger.error(f"Не удалось сохранить файл из-за ошибки: {str(e)}")
-            sys.exit(6)
-        
-        # Логируем итоговую статистику
-        total_records = len(df_target)
-        matched_records = total_records - stats['manual_checks'] - stats['missing_data']
-        
-        processing_time = time.time() - start_time
-        
-        # Добавляем мониторинг производительности
-        import psutil
-        import os
-        memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # в МБ
-        logger.info(f"Использование памяти в конце обработки: {memory_usage:.2f} MB")
-        
-        log_final_stats(
-            logger,
-            total_records=total_records,
-            matched_records=matched_records,
-            manual_check_records=stats['manual_checks'],
-            missing_data_records=stats['missing_data'],
-            exact_matches=stats['exact_matches'],  # будет 0, так как точные совпадения не отдельно считаются
-            level1_matches=stats['level1_matches'],
-            level2_matches=stats['level2_matches'],
-            fuzzy_matches=stats['fuzzy_matches'],
-            processing_time=processing_time
-        )
-        
-        logger.info("Обработка завершена успешно!")
-        
-    except Exception as e:
-        logger.error(f"Ошибка при обработке: {str(e)}")
-        import traceback
-        logger.error(f"Детали ошибки: {traceback.format_exc()}")
-        # Всё равно пытаемся сохранить промежуточный результат при ошибке
-        try:
-            wb.save(args.output)
-            logger.info(f"Частичный результат сохранен: {args.output}")
-        except:
-            logger.error(f"Не удалось сохранить файл из-за ошибки: {str(e)}")
-        sys.exit(5)
 
+    logger.info("========== ExcelCostCalculator v2 ==========")
+    logger.info(f"Входной файл: {args.input}")
+    logger.info(f"Выходной файл: {args.output}")
+    logger.info(f"Размер chunk: {args.chunk_size} строк")
+    if args.compare:
+        logger.info("Режим сравнения: ВКЛЮЧЕН")
+
+    start_time = datetime.now()
+    initial_memory = get_memory_usage()
+    if initial_memory > 0:
+        logger.info(f"Начальное использование памяти: {initial_memory:.2f} МБ")
+
+    try:
+        logger.info("Загрузка Excel-файла...")
+        df_target, df_source = load_excel_file(args.input, SHEET_NAMES['TARGET'], SHEET_NAMES['SOURCE'])
+        logger.info(f"Целевая таблица: {len(df_target)} строк")
+        logger.info(f"Справочная таблица: {len(df_source)} строк")
+
+        after_load_memory = get_memory_usage()
+        if after_load_memory > 0:
+            logger.info(f"Память после загрузки: {after_load_memory:.2f} МБ")
+
+        logger.info("Инициализация FormulaEngine...")
+        engine = FormulaEngine(df_source, SOURCE_COLUMNS)
+
+        df_target['AO_Дата_приобретения'] = None
+        df_target['AP_Квартал_приобретения'] = ""
+        df_target['AQ_Стоимость_закупки'] = None
+        df_target['AR_Прямая_СС'] = None
+        df_target['AS_НР'] = None
+
+        logger.info("Начало обработки по частям...")
+        total_rows = len(df_target)
+        chunk_size = args.chunk_size
+        total_success = 0
+        total_errors = 0
+        num_chunks = (total_rows + chunk_size - 1) // chunk_size
+        logger.info(f"Общее количество chunks: {num_chunks}")
+
+        for chunk_num in range(num_chunks):
+            chunk_start = chunk_num * chunk_size
+            chunk_end = min(chunk_start + chunk_size, total_rows)
+            logger.info(f"Обработка chunk {chunk_num + 1}/{num_chunks} (строки {chunk_start + 2}-{chunk_end + 1})...")
+
+            df_chunk = df_target.iloc[chunk_start:chunk_end].copy()
+            df_chunk_processed, success_count, error_count = process_chunk(df_chunk, engine, chunk_start, logger)
+            df_target.iloc[chunk_start:chunk_end] = df_chunk_processed
+
+            total_success += success_count
+            total_errors += error_count
+            progress = chunk_end / total_rows * 100
+            logger.info(f"Обработано: {chunk_end}/{total_rows} ({progress:.1f}%) | Успешно: {total_success} | Ошибок: {total_errors}")
+
+            current_memory = get_memory_usage()
+            if current_memory > 0:
+                logger.debug(f"Память: {current_memory:.2f} МБ")
+
+            if (chunk_num + 1) % GC_INTERVAL == 0:
+                logger.debug("Очистка памяти...")
+                gc.collect()
+
+        logger.info("Финальная очистка памяти...")
+        gc.collect()
+
+        logger.info("Сохранение результатов...")
+        write_results(args.input, args.output, df_target, SHEET_NAMES['TARGET'])
+
+        if args.compare:
+            logger.info("Сравнение с эталонными данными...")
+            df_original = pd.read_excel(args.input, sheet_name=SHEET_NAMES['TARGET'])
+            comparator = DataComparison(df_original)
+            comparison_stats = comparator.compare_results(df_target)
+            report = comparator.generate_report(comparison_stats)
+            print("\n" + report)
+
+            report_filename = args.output.replace('.xlsx', '_comparison_report.txt')
+            with open(report_filename, 'w', encoding='utf-8') as f:
+                f.write(report)
+            logger.info(f"Отчёт сравнения сохранён: {report_filename}")
+
+        elapsed = (datetime.now() - start_time).total_seconds()
+        final_memory = get_memory_usage()
+
+        logger.info("========== ИТОГОВАЯ СТАТИСТИКА ==========")
+        logger.info(f"Всего обработано записей: {total_rows}")
+        logger.info(f"Успешно сопоставлено: {total_success} ({total_success/total_rows*100:.1f}%)")
+        logger.info(f"Требует ручной проверки: {total_errors} ({total_errors/total_rows*100:.1f}%)")
+        logger.info(f"Время обработки: {elapsed:.1f} сек ({elapsed/60:.1f} мин)")
+
+        if final_memory > 0:
+            logger.info(f"Финальная память: {final_memory:.2f} МБ")
+
+        logger.info("Обработка завершена успешно!")
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке: {e}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
