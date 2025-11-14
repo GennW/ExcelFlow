@@ -1,4 +1,4 @@
-"""Конфигурация ExcelCostCalculator"""
+"""Конфигурация ExcelCostCalculator (ИСПРАВЛЕННАЯ ВЕРСИЯ)"""
 
 # Индексы столбцов (начиная с 0)
 TARGET_COLUMNS = {
