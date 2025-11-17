@@ -30,32 +30,32 @@ def process_chunk(df_chunk, engine, chunk_start_idx, logger):
 
         if not acquisition_date:
             logger.debug(f"Строка {global_idx+2}: Не удалось извлечь дату")
-            df_chunk.at[df_chunk.index[idx], 'AO_Дата_приобретения'] = "*Дата не найдена*"
-            df_chunk.at[df_chunk.index[idx], 'AP_Квартал_приобретения'] = ""
-            df_chunk.at[df_chunk.index[idx], 'AQ_Стоимость_закупки'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
-            df_chunk.at[df_chunk.index[idx], 'AR_Прямая_СС'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
-            df_chunk.at[df_chunk.index[idx], 'AS_НР'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            df_chunk.at[df_chunk.index[idx], 'AO_**Дата_приобретения**'] = "#НД"
+            df_chunk.at[df_chunk.index[idx], 'AP_**Квартал_приобретения**'] = ""
+            df_chunk.at[df_chunk.index[idx], 'AQ_**Стоимость_закупки**'] = "#РП"
+            df_chunk.at[df_chunk.index[idx], 'AR_**Прямая_СС**'] = "#РП"
+            df_chunk.at[df_chunk.index[idx], 'AS_**НР**'] = "#РП"
             error_count += 1
             continue
 
-        df_chunk.at[df_chunk.index[idx], 'AO_Дата_приобретения'] = acquisition_date.strftime(DATE_FORMAT_OUTPUT)
+        df_chunk.at[df_chunk.index[idx], 'AO_**Дата_приобретения**'] = acquisition_date.strftime(DATE_FORMAT_OUTPUT)
         quarter = determine_quarter(acquisition_date)
-        df_chunk.at[df_chunk.index[idx], 'AP_Квартал_приобретения'] = quarter
+        df_chunk.at[df_chunk.index[idx], 'AP_**Квартал_приобретения**'] = quarter
 
         aq = engine.calculate_aq(nomenclature, quarter)
         ar = engine.calculate_ar(nomenclature, quarter)
         as_val = engine.calculate_as(nomenclature, quarter)
 
         if aq is not None:
-            df_chunk.at[df_chunk.index[idx], 'AQ_Стоимость_закупки'] = aq
-            df_chunk.at[df_chunk.index[idx], 'AR_Прямая_СС'] = ar
-            df_chunk.at[df_chunk.index[idx], 'AS_НР'] = as_val
+            df_chunk.at[df_chunk.index[idx], 'AQ_**Стоимость_закупки**'] = aq
+            df_chunk.at[df_chunk.index[idx], 'AR_**Прямая_СС**'] = ar
+            df_chunk.at[df_chunk.index[idx], 'AS_**НР**'] = as_val
             success_count += 1
         else:
             logger.debug(f"Строка {global_idx+2}: Нет совпадений")
-            df_chunk.at[df_chunk.index[idx], 'AQ_Стоимость_закупки'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
-            df_chunk.at[df_chunk.index[idx], 'AR_Прямая_СС'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
-            df_chunk.at[df_chunk.index[idx], 'AS_НР'] = "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*"
+            df_chunk.at[df_chunk.index[idx], 'AQ_**Стоимость_закупки**'] = "#РП"
+            df_chunk.at[df_chunk.index[idx], 'AR_**Прямая_СС**'] = "#РП"
+            df_chunk.at[df_chunk.index[idx], 'AS_**НР**'] = "#РП"
             error_count += 1
 
     return df_chunk, success_count, error_count
@@ -102,11 +102,11 @@ def main():
         logger.info("Инициализация FormulaEngine...")
         engine = FormulaEngine(df_source, SOURCE_COLUMNS)
 
-        df_target['AO_Дата_приобретения'] = None
-        df_target['AP_Квартал_приобретения'] = ""
-        df_target['AQ_Стоимость_закупки'] = None
-        df_target['AR_Прямая_СС'] = None
-        df_target['AS_НР'] = None
+        df_target['AO_**Дата_приобретения**'] = None
+        df_target['AP_**Квартал_приобретения**'] = ""
+        df_target['AQ_**Стоимость_закупки**'] = None
+        df_target['AR_**Прямая_СС**'] = None
+        df_target['AS_**НР**'] = None
 
         logger.info("Начало обработки по частям...")
         total_rows = len(df_target)

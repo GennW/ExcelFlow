@@ -34,7 +34,6 @@ class DataComparison:
                 check_row_idx = 9  # Индекс строки с эталонными названиями
                 if len(self.df_source) > check_row_idx:
                     row_value = str(self.df_source.iloc[check_row_idx, col_idx])
-                    # Проверяем, содержит ли значение ожидаемое имя (с учетом возможных звездочек)
                     if expected_name.lower() in row_value.lower():
                         self.reference_columns_exist[col_code] = True
                         # Берём данные начиная со строки после эталонной строки (с индексом 10)
@@ -71,83 +70,9 @@ class DataComparison:
         logger.info("========== СРАВНЕНИЕ ЭТАЛОННЫХ И РАСЧЁТНЫХ ДАННЫХ ==========")
         stats = {'comparison_available': True, 'total_rows': len(df_calculated), 'columns': {}}
         calculated_columns = {
-            'AO': 'AO_**Дата_приобретения**', 'AP': 'AP_**Квартал_приобретения**',
-            'AQ': 'AQ_**Стоимость_закупки**', 'AR': 'AR_**Прямая_СС**', 'AS': 'AS_**НР**',
+            'AO': 'AO_Дата_приобретения', 'AP': 'AP_Квартал_приобретения',
+            'AQ': 'AQ_Стоимость_закупки', 'AR': 'AR_Прямая_СС', 'AS': 'AS_НР',
         }
-
-        # Добавляем специальные метрики для стоимостных столбцов (AQ, AR, AS)
-        special_metrics = {
-            'human_not_found': 0,      # Человек не нашёл (пустое в эталоне)
-            'program_not_found': 0,    # Программа не нашла (пустое в расчёте)
-            'both_not_found': 0,       # Оба не нашли (и эталон пустой, и расчёт пустой)
-            'human_found_program_not': 0,  # Человек нашёл, программа нет (эталон не пустой, расчёт пустой)
-            'program_found_human_not': 0   # Программа нашла, человек нет (эталон пустой, расчёт не пустой)
-        }
-
-        # Подсчитываем специальные метрики только для стоимостных столбцов (AQ, AR, AS)
-        # Используем данные только из одного столбца для подсчета метрик, чтобы избежать дублирования
-        for idx in range(len(df_calculated)):
-            # Проверяем, есть ли данные в хотя бы одном из стоимостных столбцов эталона
-            ref_aq = self.reference_data.get('AQ', pd.Series()).iloc[idx] if idx < len(self.reference_data.get('AQ', [])) else None
-            ref_ar = self.reference_data.get('AR', pd.Series()).iloc[idx] if idx < len(self.reference_data.get('AR', [])) else None
-            ref_as = self.reference_data.get('AS', pd.Series()).iloc[idx] if idx < len(self.reference_data.get('AS', [])) else None
-            
-            calc_aq = df_calculated[calculated_columns['AQ']].iloc[idx] if idx < len(df_calculated) else None
-            calc_ar = df_calculated[calculated_columns['AR']].iloc[idx] if idx < len(df_calculated) else None
-            calc_as = df_calculated[calculated_columns['AS']].iloc[idx] if idx < len(df_calculated) else None
-            
-            # Определяем, есть ли какая-то эталонная информация в строке
-            ref_empty_aq = pd.isna(ref_aq) or str(ref_aq).strip() == "" if ref_aq is not None else True
-            ref_empty_ar = pd.isna(ref_ar) or str(ref_ar).strip() == "" if ref_ar is not None else True
-            ref_empty_as = pd.isna(ref_as) or str(ref_as).strip() == "" if ref_as is not None else True
-            
-            calc_empty_aq = (
-                pd.isna(calc_aq) or
-                str(calc_aq).strip() == "" or
-                "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*" in str(calc_aq) or
-                calc_aq == "#РП" or
-                calc_aq == "#НД"
-            ) if calc_aq is not None else True
-            
-            calc_empty_ar = (
-                pd.isna(calc_ar) or
-                str(calc_ar).strip() == "" or
-                "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*" in str(calc_ar) or
-                calc_ar == "#РП" or
-                calc_ar == "#НД"
-            ) if calc_ar is not None else True
-            
-            calc_empty_as = (
-                pd.isna(calc_as) or
-                str(calc_as).strip() == "" or
-                "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*" in str(calc_as) or
-                calc_as == "#РП" or
-                calc_as == "#НД"
-            ) if calc_as is not None else True
-            
-            # Определяем, есть ли эталонные данные в строке
-            has_reference_data = not (ref_empty_aq and ref_empty_ar and ref_empty_as)
-            has_calculation_data = not (calc_empty_aq and calc_empty_ar and calc_empty_as)
-            
-            if not has_reference_data and not has_calculation_data:
-                # Оба не нашли
-                special_metrics['both_not_found'] += 1
-                special_metrics['human_not_found'] += 1
-                special_metrics['program_not_found'] += 1
-            elif not has_reference_data and has_calculation_data:
-                # Программа нашла, человек нет
-                special_metrics['program_found_human_not'] += 1
-                special_metrics['program_not_found'] += 0  # Не увеличиваем, т.к. программа нашла
-                special_metrics['human_not_found'] += 1
-            elif has_reference_data and not has_calculation_data:
-                # Человек нашёл, программа нет
-                special_metrics['human_found_program_not'] += 1
-                special_metrics['human_not_found'] += 0  # Не увеличиваем, т.к. человек нашел
-                special_metrics['program_not_found'] += 1
-            else:
-                # Оба нашли - не добавляем к специальным метрикам, но увеличиваем счётчики, если нужно
-                special_metrics['human_not_found'] += 0
-                special_metrics['program_not_found'] += 0
 
         for col_code in ['AO', 'AP', 'AQ', 'AR', 'AS']:
             if not self.reference_columns_exist.get(col_code, False):
@@ -162,10 +87,7 @@ class DataComparison:
 
             logger.info(f"Столбец {col_code} ({self.EXPECTED_NAMES[col_code]}):")
             logger.info(f"  Полных совпадений: {comparison_result['exact_matches']} ({comparison_result['exact_match_percent']:.1f}%)")
-            logger.info(f" Несовпадений: {comparison_result['mismatches']} ({comparison_result['mismatch_percent']:.1f}%)")
-
-        # Добавляем специальные метрики в статистику
-        stats['special_metrics'] = special_metrics
+            logger.info(f"  Несовпадений: {comparison_result['mismatches']} ({comparison_result['mismatch_percent']:.1f}%)")
 
         return stats
 
@@ -181,7 +103,7 @@ class DataComparison:
             ref_val = reference.iloc[idx]
             calc_val = calculated.iloc[idx]
             ref_empty = pd.isna(ref_val) or str(ref_val).strip() == ""
-            calc_empty = pd.isna(calc_val) or str(calc_val).strip() == "" or "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*" in str(calc_val) or calc_val == "#РП" or calc_val == "#НД"
+            calc_empty = pd.isna(calc_val) or str(calc_val).strip() == "" or "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*" in str(calc_val)
 
             if ref_empty:
                 empty_in_reference += 1
@@ -227,18 +149,6 @@ class DataComparison:
             return stats.get('message', 'Сравнение недоступно')
 
         report_lines = ["=" * 80, "ОТЧЁТ О СРАВНЕНИИ ЭТАЛОННЫХ И РАСЧЁТНЫХ ДАННЫХ", "=" * 80, f"Всего строк: {stats['total_rows']}", ""]
-
-        # Добавляем детальную статистику, если она доступна
-        if 'special_metrics' in stats:
-            special_metrics = stats['special_metrics']
-            report_lines.append("ДЕТАЛЬНАЯ СТАТИСТИКА:")
-            report_lines.append("-" * 80)
-            report_lines.append(f" Человек не нашёл: {special_metrics['human_not_found']}")
-            report_lines.append(f"  Программа не нашла: {special_metrics['program_not_found']}")
-            report_lines.append(f"  ✅ Оба не нашли: {special_metrics['both_not_found']}")
-            report_lines.append(f"  ❌ Человек нашёл, программа нет: {special_metrics['human_found_program_not']}")
-            report_lines.append(f"  ✨ Программа нашла, человек нет: {special_metrics['program_found_human_not']}")
-            report_lines.append("")
 
         for col_code in ['AO', 'AP', 'AQ', 'AR', 'AS']:
             col_stats = stats['columns'].get(col_code, {})

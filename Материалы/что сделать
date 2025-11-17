@@ -1,0 +1,112 @@
+
+
+
+1. Новые столбцы в настоящее время добавляются, начиная с первой строки, но заголовки существующих столбцов не начинаются с первой строки. Измените логику так, чтобы заголовки 5 новых столбцов начинались с той же строки, где начинаются заголовки существующих столбцов, сохраняя выравнивание с текущим расположением заголовков столбцов.
+
+
+2. зайти и восстановитьт файлы ТЗ ВЕБ
+https://github.com/GennW/ExcelFlow/blob/9a2e5643ac1303af761a7cb4dde8b7e6665ab2cc/%D0%9C%D0%B0%D1%82%D0%B5%D1%80%D0%B8%D0%B0%D0%BB%D1%8B/%D0%B4%D0%BE%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D0%B0
+
+
+
+3. ЗАДАЧА: Улучшить модуль сравнения (utils/comparison.py) - разделить статистику "оба не нашли" на две категории
+
+КОНТЕКСТ:
+В файле utils/comparison.py есть класс DataComparison, который сравнивает эталонные данные (заполненные человеком) с расчётными данными (созданными программой).
+
+ПРОБЛЕМА:
+Сейчас все случаи когда "оба не нашли" (человек и программа) объединяются в один показатель, но это неправильно, так как есть ДВА разных случая:
+
+1. СПЕЦИАЛЬНО ПРОПУЩЕННЫЕ данные (intentional skip):
+   - В эталоне: Дата приобретения = пусто
+   - В эталоне: Квартал приобретения = "до 2024" | "до 2023" | "нет данных" | любой текст БЕЗ формата "N квартал YYYY"
+   - В расчёте: пусто или #РП
+   - Смысл: Старые данные или специально не заполненные
+   - Это НОРМА ✅
+
+2. РЕАЛЬНО НЕ НАЙДЕННЫЕ данные (real miss):
+   - В эталоне: Дата приобретения = пусто
+   - В эталоне: Квартал приобретения = "1 квартал 2024" | "2 квартал 2023" | валидный формат "N квартал YYYY"
+   - В расчёте: пусто
+   - Смысл: Данные должны быть в справочнике, но не найдены
+   - Это ПРОБЛЕМА ❌
+
+ТРЕБУЕТСЯ:
+1. Добавить функцию для проверки валидности формата квартала:
+   
+   def _is_valid_quarter(quarter_value) -> bool:
+       """Проверяет что квартал имеет валидный формат 'N квартал YYYY' (N=1-4, YYYY=2020-2030)"""
+       # Паттерн: r'^([1-4])\s+квартал\s+(20[2-3][0-9])$'
+       # Возвращает True если формат валидный, False иначе
+
+2. Добавить функцию для определения специально пропущенных:
+   
+   def _is_intentional_skip(quarter_value) -> bool:
+       """Возвращает True если значение НЕ соответствует формату квартала (специально пропущено)"""
+       # return not _is_valid_quarter(quarter_value)
+
+3. Расширить словарь special_metrics новыми полями:
+   
+   special_metrics = {
+       'human_not_found': 0,
+       'human_not_found_intentional': 0,  # НОВОЕ: специально пропущены
+       'human_not_found_real': 0,         # НОВОЕ: с валидным кварталом
+       
+       'program_not_found': 0,
+       
+       'both_not_found': 0,
+       'both_not_found_intentional': 0,   # НОВОЕ: специально / специально
+       'both_not_found_real': 0,          # НОВОЕ: валидный квартал / пусто
+       
+       'human_found_program_not': 0,
+       'program_found_human_not': 0
+   }
+
+4. В методе _compare_column() при подсчёте столбца AQ добавить классификацию:
+   
+   if ref_empty:
+       special_metrics['human_not_found'] += 1
+       
+       # Получаем квартал из эталона (столбец AP)
+       quarter_ref = self.reference_data.get('AP')
+       if quarter_ref is not None and idx < len(quarter_ref):
+           quarter_value = quarter_ref.iloc[idx]
+       else:
+           quarter_value = None
+       
+       # Классифицируем
+       if _is_valid_quarter(quarter_value):
+           special_metrics['human_not_found_real'] += 1
+       else:
+           special_metrics['human_not_found_intentional'] += 1
+       
+       if calc_empty:
+           special_metrics['both_not_found'] += 1
+           
+           if _is_valid_quarter(quarter_value):
+               special_metrics['both_not_found_real'] += 1
+           else:
+               special_metrics['both_not_found_intentional'] += 1
+
+5. Обновить метод generate_report() чтобы показывал новую статистику:
+   
+   ДЕТАЛЬНАЯ СТАТИСТИКА:
+     Человек не нашёл: {human_not_found}
+       ├─ Специально пропущены: {human_not_found_intentional}
+       └─ С валидным кварталом: {human_not_found_real}
+     
+     Программа не нашла: {program_not_found}
+     
+     ✅ Оба не нашли (согласие): {both_not_found}
+       ├─ Специально пропущены: {both_not_found_intentional}
+       └─ С валидным кварталом: {both_not_found_real}
+     
+     ❌ Человек нашёл, программа нет: {human_found_program_not}
+     ✨ Программа нашла, человек нет: {program_found_human_not}
+
+ВАЖНО:
+- Добавить import re в начало файла
+- Сохранить всю существующую логику сравнения
+- Новые метрики добавить ТОЛЬКО для столбца AQ (стоимость)
+- Функции _is_valid_quarter и _is_intentional_skip сделать методами класса
+
