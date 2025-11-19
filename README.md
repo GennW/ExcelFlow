@@ -21,11 +21,14 @@ pip install -r requirements.txt
 python main.py --input "file.xlsx" --output "result.xlsx"
 ```
 
-С сравнением:
+С сравнением (отладкой):
 ```bash
 python main.py --input "file.xlsx" --output "result.xlsx" --compare
 
 python3 main.py --input "Материалы/СК_ТПХпродажи_1_пг_2025.xlsx" --output "результат.xlsx" --compare
+
+python3 main.py --input "Материалы/СК ТПХ продажи_1 пг 2025.xlsx" --output "результат.xlsx" --log-level DEBUG --compare
+
 ```
 
 ## Параметры

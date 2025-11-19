@@ -118,8 +118,10 @@ class DataComparison:
         # Инициализируем специальные метрики как атрибуты объекта
         self.special_metrics = {
             'human_not_found': 0,
-            'human_not_found_intentional': 0,  # НОВОЕ: специально пропущены
-            'human_not_found_real': 0,         # НОВОЕ: с валидным кварталом
+            'nothing_found': 0,  # НОВОЕ: оба поля (ДП и КП) пустые
+            'date_not_found_year_only': 0,  # НОВОЕ: ДП пустая, КП не валидный квартал
+            'date_not_found_quarter_computed': 0,  # НОВОЕ: ДП пустая, КП валидный квартал
+            'cost_not_found': 0,  # НОВОЕ: ДП и КП заполнены, AQ не формула
             
             'program_not_found': 0,
             
@@ -185,23 +187,55 @@ class DataComparison:
                     else:
                         quarter_value = None
                     
-                    # Классифицируем
-                    if self._is_valid_quarter(quarter_value):
-                        self.special_metrics['human_not_found_real'] += 1
+                    # Получаем дату из эталона (столбец AO)
+                    date_ref = self.reference_data.get('AO')
+                    if date_ref is not None and idx < len(date_ref):
+                        date_value = date_ref.iloc[idx]
                     else:
-                        self.special_metrics['human_not_found_intentional'] += 1
+                        date_value = None
+                    
+                    # Проверяем, является ли значение в AQ формулой
+                    is_formula = str(ref_val).startswith('=СУММ') if not pd.isna(ref_val) else False
                     
                     # Обновляем общую метрику "человек не нашёл"
                     self.special_metrics['human_not_found'] += 1
+                    
+                    # Классифицируем "человек не нашёл"
+                    if pd.isna(date_value) or str(date_value).strip() == "":
+                        # Дата пустая
+                        if pd.isna(quarter_value) or str(quarter_value).strip() == "":
+                            # Оба поля (ДП и КП) пустые
+                            self.special_metrics['nothing_found'] += 1
+                        elif self._is_valid_quarter(quarter_value):
+                            # ДП пустая, КП валидный квартал
+                            self.special_metrics['date_not_found_quarter_computed'] += 1
+                        else:
+                            # ДП пустая, КП не валидный квартал
+                            self.special_metrics['date_not_found_year_only'] += 1
+                    else:
+                        # Дата заполнена, проверяем стоимость
+                        if not is_formula and (pd.isna(ref_val) or str(ref_val).strip() == "" or str(ref_val).strip() == "0"):
+                            # Поле ДП и КП заполнены, AQ не формула и пустая/ноль
+                            self.special_metrics['cost_not_found'] += 1
                     
                     if calc_empty:
                         # Оба не нашли - также классифицируем
                         self.special_metrics['both_not_found'] += 1
                         
-                        if self._is_valid_quarter(quarter_value):
-                            self.special_metrics['both_not_found_real'] += 1
+                        if pd.isna(date_value) or str(date_value).strip() == "":
+                            # Дата пустая
+                            if pd.isna(quarter_value) or str(quarter_value).strip() == "":
+                                # Оба поля (ДП и КП) пустые
+                                self.special_metrics['both_not_found_intentional'] += 1
+                            elif self._is_valid_quarter(quarter_value):
+                                # ДП пустая, КП валидный квартал
+                                self.special_metrics['both_not_found_real'] += 1
+                            else:
+                                # ДП пустая, КП не валидный квартал
+                                self.special_metrics['both_not_found_intentional'] += 1
                         else:
-                            self.special_metrics['both_not_found_intentional'] += 1
+                            # Дата заполнена, но стоимость не найдена
+                            self.special_metrics['both_not_found_real'] += 1
                 
                 continue
             elif calc_empty:
@@ -280,19 +314,29 @@ class DataComparison:
             report_lines.append("ДЕТАЛЬНАЯ СТАТИСТИКА:")
             report_lines.append("-" * 80)
             report_lines.append(f" Человек не нашёл: {special_metrics['human_not_found']}")
-            report_lines.append(f"   ├─ Специально пропущены: {special_metrics['human_not_found_intentional']}")
-            report_lines.append(f"   └─ С валидным кварталом: {special_metrics['human_not_found_real']}")
-            report_lines.append(f"  Программа не нашла: {special_metrics['program_not_found']}")
+            report_lines.append(f"   ├─ Ничего не найдено: {special_metrics.get('nothing_found', 0)}")
+            report_lines.append(f"   ├─ Не найдена Дата приобретения только год: {special_metrics.get('date_not_found_year_only', 0)}")
+            report_lines.append(f"   ├─ Не найдена Дата приобретения но вычислен квартал: {special_metrics.get('date_not_found_quarter_computed', 0)}")
+            report_lines.append(f"   └─ Не найдена Стоимость: {special_metrics.get('cost_not_found', 0)}")
+            report_lines.append(f" Программа не нашла: {special_metrics['program_not_found']}")
             report_lines.append(f"  ✅ Оба не нашли (согласие): {special_metrics['both_not_found']}")
-            report_lines.append(f"    ├─ Специально пропущены: {special_metrics['both_not_found_intentional']}")
-            report_lines.append(f"    └─ С валидным кварталом: {special_metrics['both_not_found_real']}")
+            report_lines.append(f"    ├─ Человек не искал: {special_metrics['both_not_found_intentional']}")
+            report_lines.append(f"    └─ Человек искал, но не нашёл: {special_metrics['both_not_found_real']}")
             report_lines.append(f" ❌ Человек нашёл, программа нет: {special_metrics['human_found_program_not']}")
             report_lines.append(f"  ✨ Программа нашла, человек нет: {special_metrics['program_found_human_not']}")
             report_lines.append("")
             
             # Добавляем общее количество записей для проверки
-            total_records = special_metrics['human_not_found'] + special_metrics['program_not_found'] - special_metrics['both_not_found']
-            report_lines.append(f"  Всего записей в классификации: {total_records}")
+            total_records = special_metrics['human_not_found'] + special_metrics['human_found_program_not']
+            report_lines.append(f" Всего записей в классификации: {total_records}")
+            
+            # Проверка корректности статистики
+            human_total_check = (special_metrics['nothing_found'] +
+                                special_metrics['date_not_found_year_only'] +
+                                special_metrics['date_not_found_quarter_computed'] +
+                                special_metrics['cost_not_found'])
+            if special_metrics['human_not_found'] != human_total_check:
+                report_lines.append(f" ⚠️ ПРЕДУПРЕЖДЕНИЕ: Сумма подкатегорий 'человек не нашёл' ({human_total_check}) не равна общей сумме ({special_metrics['human_not_found']})")
             report_lines.append("")
 
         for col_code in ['AO', 'AP', 'AQ', 'AR', 'AS']:
