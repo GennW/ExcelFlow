@@ -23,12 +23,40 @@ class DataComparison:
         self.reference_data = {}
         self._check_reference_columns()
 
+    def _is_excel_not_empty(self, value):
+        """
+        Проверяет "непустоту" значения так же, как это делает фильтр Excel
+        Excel считает ПУСТЫМИ:
+        - NaN, None
+        - Пустые строки ""
+        - Строки только из пробелов "   "
+        - Строку "nan" (как текст)
+        - Тире "-"
+        - Строку "none"
+        """
+        # NaN или None
+        if pd.isna(value):
+            return False
+
+        # Приводим к строке и очищаем от пробелов
+        str_value = str(value).strip().lower()
+
+        # Список значений, которые считаются пустыми
+        empty_values = ["", "nan", "none", "-", "—"]
+
+        return str_value not in empty_values
+
     def _is_valid_quarter(self, quarter_value) -> bool:
         """Проверяет что квартал имеет валидный формат 'N квартал YYYY' (N=1-4, YYYY=2020-2030)"""
-        if pd.isna(quarter_value) or quarter_value is None:
+        if not self._is_excel_not_empty(quarter_value):
             return False
+
+        str_value = str(quarter_value).strip()
+
+        # Паттерн: "1-4 квартал 2020-2030"
         pattern = r'^([1-4])\s+квартал\s+(20[2-3][0-9])$'
-        return bool(re.match(pattern, str(quarter_value).strip()))
+
+        return bool(re.match(pattern, str_value))
 
     def _is_intentional_skip(self, quarter_value) -> bool:
         """Возвращает True если значение НЕ соответствует формату квартала (специально пропущено)"""
@@ -90,16 +118,14 @@ class DataComparison:
         # Инициализируем специальные метрики как атрибуты объекта
         self.special_metrics = {
             'human_not_found': 0,
-            'nothing_found': 0,  # НОВОЕ: оба поля (ДП и КП) пустые
-            'date_not_found_year_only': 0,  # НОВОЕ: ДП пустая, КП не валидный квартал
-            'date_not_found_quarter_computed': 0,  # НОВОЕ: ДП пустая, КП валидный квартал
-            'cost_not_found': 0,  # НОВОЕ: ДП и КП заполнены, AQ не формула
+            'human_not_found_intentional': 0,  # НОВОЕ: специально пропущены
+            'human_not_found_real': 0,         # НОВОЕ: с валидным кварталом
             
             'program_not_found': 0,
             
             'both_not_found': 0,
-            'both_not_found_intentional': 0,   # НОВОЕ: специально / специально
-            'both_not_found_real': 0,          # НОВОЕ: валидный квартал / пусто
+            'both_not_found_intentional': 0,   # НОВОЕ: специально пропущены
+            'both_not_found_real': 0,          # НОВОЕ: с валидным кварталом
             
             'human_found_program_not': 0,
             'program_found_human_not': 0
@@ -136,7 +162,15 @@ class DataComparison:
         for idx in range(total_rows):
             ref_val = reference.iloc[idx]
             calc_val = calculated.iloc[idx]
-            ref_empty = pd.isna(ref_val) or str(ref_val).strip() == ""
+            # Для столбца AQ (стоимость) проверяем, является ли значение формулой или нулем
+            if col_code == 'AQ':
+                # "Человек не нашёл" - когда в эталоне AQ есть формула (начинается с =) или значение 0
+                is_formula = str(ref_val).startswith('=') if not pd.isna(ref_val) else False
+                is_zero = str(ref_val).strip() == "0" if not pd.isna(ref_val) else False
+                ref_empty = is_formula or is_zero
+            else:
+                ref_empty = not self._is_excel_not_empty(ref_val)
+            
             calc_empty = pd.isna(calc_val) or str(calc_val).strip() == "" or "*ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ*" in str(calc_val) or calc_val == "#РП" or calc_val == "#НД"
 
             if ref_empty:
@@ -151,57 +185,58 @@ class DataComparison:
                     else:
                         quarter_value = None
                     
-                    # Получаем дату из эталона (столбец AO)
-                    date_ref = self.reference_data.get('AO')
-                    if date_ref is not None and idx < len(date_ref):
-                        date_value = date_ref.iloc[idx]
-                    else:
-                        date_value = None
-                    
-                    # Проверяем, является ли значение в AQ формулой
-                    is_formula = str(ref_val).startswith('=СУММ') if not pd.isna(ref_val) else False
-                    
                     # Классифицируем
-                    if pd.isna(date_value) or str(date_value).strip() == "":
-                        # Дата пустая
-                        if pd.isna(quarter_value) or str(quarter_value).strip() == "":
-                            # Оба поля (ДП и КП) пустые
-                            self.special_metrics['nothing_found'] += 1
-                        elif self._is_valid_quarter(quarter_value):
-                            # ДП пустая, КП валидный квартал
-                            self.special_metrics['date_not_found_quarter_computed'] += 1
-                        else:
-                            # ДП пустая, КП не валидный квартал
-                            self.special_metrics['date_not_found_year_only'] += 1
+                    if self._is_valid_quarter(quarter_value):
+                        self.special_metrics['human_not_found_real'] += 1
                     else:
-                        # Дата заполнена, проверяем стоимость
-                        if not is_formula and (pd.isna(ref_val) or str(ref_val).strip() == "" or str(ref_val).strip() == "0"):
-                            # Поле ДП и КП заполнены, AQ не формула и пустая/ноль
-                            self.special_metrics['cost_not_found'] += 1
+                        self.special_metrics['human_not_found_intentional'] += 1
+                    
+                    # Обновляем общую метрику "человек не нашёл"
+                    self.special_metrics['human_not_found'] += 1
                     
                     if calc_empty:
                         # Оба не нашли - также классифицируем
-                        if pd.isna(date_value) or str(date_value).strip() == "":
-                            # Дата пустая
-                            if pd.isna(quarter_value) or str(quarter_value).strip() == "":
-                                # Оба поля (ДП и КП) пустые
-                                self.special_metrics['both_not_found_intentional'] += 1
-                            elif self._is_valid_quarter(quarter_value):
-                                # ДП пустая, КП валидный квартал
-                                self.special_metrics['both_not_found_real'] += 1
-                            else:
-                                # ДП пустая, КП не валидный квартал
-                                self.special_metrics['both_not_found_intentional'] += 1
-                        else:
-                            # Дата заполнена, но стоимость не найдена
+                        self.special_metrics['both_not_found'] += 1
+                        
+                        if self._is_valid_quarter(quarter_value):
                             self.special_metrics['both_not_found_real'] += 1
+                        else:
+                            self.special_metrics['both_not_found_intentional'] += 1
                 
                 continue
-            if calc_empty:
+            elif calc_empty:
                 empty_in_calculated += 1
+                self.special_metrics['program_not_found'] += 1
+                if col_code == 'AQ':
+                    # Обновляем метрику "человек нашёл, программа нет"
+                    self.special_metrics['human_found_program_not'] += 1
                 if len(mismatch_examples) < 10:
                     mismatch_examples.append({'row': idx + 2, 'reference': ref_val, 'calculated': calc_val, 'reason': 'Расчёт не выполнен'})
                 continue
+            else:
+                # Оба значения не пустые - обычное сравнение
+                if col_code in ['AQ', 'AR', 'AS']:
+                    try:
+                        ref_num = float(ref_val)
+                        calc_num = float(calc_val)
+                        if abs(ref_num - calc_num) < 0.01:
+                            exact_matches += 1
+                        else:
+                            mismatches += 1
+                            if len(mismatch_examples) < 10:
+                                mismatch_examples.append({'row': idx + 2, 'reference': f"{ref_num:.2f}", 'calculated': f"{calc_num:.2f}",
+                                                         'difference': f"{calc_num - ref_num:+.2f}", 'reason': 'Разные значения'})
+                    except (ValueError, TypeError):
+                        mismatches += 1
+                        if len(mismatch_examples) < 10:
+                            mismatch_examples.append({'row': idx + 2, 'reference': ref_val, 'calculated': calc_val, 'reason': 'Невозможно сравнить как числа'})
+                else:
+                    if str(ref_val).strip() == str(calc_val).strip():
+                        exact_matches += 1
+                    else:
+                        mismatches += 1
+                        if len(mismatch_examples) < 10:
+                            mismatch_examples.append({'row': idx + 2, 'reference': ref_val, 'calculated': calc_val, 'reason': 'Разные значения'})
 
             if col_code in ['AQ', 'AR', 'AS']:
                 try:
@@ -245,14 +280,12 @@ class DataComparison:
             report_lines.append("ДЕТАЛЬНАЯ СТАТИСТИКА:")
             report_lines.append("-" * 80)
             report_lines.append(f" Человек не нашёл: {special_metrics['human_not_found']}")
-            report_lines.append(f"   ├─ Ничего не найдено: {special_metrics['nothing_found']}")
-            report_lines.append(f"   ├─ Не найдена Дата приобретения только год: {special_metrics['date_not_found_year_only']}")
-            report_lines.append(f"   ├─ Не найдена Дата приобретения но вычислен квартал: {special_metrics['date_not_found_quarter_computed']}")
-            report_lines.append(f"   └─ Не найдена Стоимость: {special_metrics['cost_not_found']}")
+            report_lines.append(f"   ├─ Специально пропущены: {special_metrics['human_not_found_intentional']}")
+            report_lines.append(f"   └─ С валидным кварталом: {special_metrics['human_not_found_real']}")
             report_lines.append(f"  Программа не нашла: {special_metrics['program_not_found']}")
             report_lines.append(f"  ✅ Оба не нашли (согласие): {special_metrics['both_not_found']}")
-            report_lines.append(f"    ├─ Человек не искал: {special_metrics['both_not_found_intentional']}")
-            report_lines.append(f"    └─ Человек искал, но не нашёл: {special_metrics['both_not_found_real']}")
+            report_lines.append(f"    ├─ Специально пропущены: {special_metrics['both_not_found_intentional']}")
+            report_lines.append(f"    └─ С валидным кварталом: {special_metrics['both_not_found_real']}")
             report_lines.append(f" ❌ Человек нашёл, программа нет: {special_metrics['human_found_program_not']}")
             report_lines.append(f"  ✨ Программа нашла, человек нет: {special_metrics['program_found_human_not']}")
             report_lines.append("")
