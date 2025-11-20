@@ -164,6 +164,7 @@ class DataComparison:
         for idx in range(total_rows):
             ref_val = reference.iloc[idx]
             calc_val = calculated.iloc[idx]
+            
             # Для столбца AQ (стоимость) проверяем, является ли значение формулой или нулем
             if col_code == 'AQ':
                 # "Человек не нашёл" - когда в эталоне AQ есть формула (начинается с =) или значение 0
@@ -236,7 +237,10 @@ class DataComparison:
                         else:
                             # Дата заполнена, но стоимость не найдена
                             self.special_metrics['both_not_found_real'] += 1
-                
+                    else:
+                        # Человек не нашёл, но программа нашла
+                        self.special_metrics['program_found_human_not'] += 1
+                 
                 continue
             elif calc_empty:
                 empty_in_calculated += 1
