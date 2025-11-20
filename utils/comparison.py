@@ -1,7 +1,7 @@
 """Модуль для сравнения эталонных и расчётных данных"""
 import pandas as pd
 import re
-from typing import Dict
+from typing import Dict, List
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,6 +21,7 @@ class DataComparison:
         self.logger = logger
         self.reference_columns_exist = {}
         self.reference_data = {}
+        self.program_found_human_not_examples = []  # Новое: хранилище примеров
         self._check_reference_columns()
 
     def _is_excel_not_empty(self, value):
@@ -34,14 +35,10 @@ class DataComparison:
         - Тире "-"
         - Строку "none"
         """
-        # NaN или None
         if pd.isna(value):
             return False
 
-        # Приводим к строке и очищаем от пробелов
         str_value = str(value).strip().lower()
-
-        # Список значений, которые считаются пустыми
         empty_values = ["", "nan", "none", "-", "—"]
 
         return str_value not in empty_values
@@ -52,8 +49,6 @@ class DataComparison:
             return False
 
         str_value = str(quarter_value).strip()
-
-        # Паттерн: "1-4 квартал 2020-2030"
         pattern = r'^([1-4])\s+квартал\s+(20[2-3][0-9])$'
 
         return bool(re.match(pattern, str_value))
@@ -69,26 +64,20 @@ class DataComparison:
                 col_name = self.df_source.columns[col_idx]
                 expected_name = self.EXPECTED_NAMES[col_code]
                 
-                # Проверяем ЗНАЧЕНИЕ в строке с индексом 9, а не название столбца
-                # или в строке с индексом 0, если строка 9 недоступна
-                check_row_idx = 9  # Индекс строки с эталонными названиями
+                check_row_idx = 9
                 if len(self.df_source) > check_row_idx:
                     row_value = str(self.df_source.iloc[check_row_idx, col_idx])
-                    # Проверяем, содержит ли значение ожидаемое имя (с учетом возможных звездочек)
                     if expected_name.lower() in row_value.lower():
                         self.reference_columns_exist[col_code] = True
-                        # Берём данные начиная со строки после эталонной строки (с индексом 10)
                         self.reference_data[col_code] = self.df_source.iloc[check_row_idx+1:, col_idx].reset_index(drop=True)
                         logger.info(f"  ✅ Столбец {col_code} ({expected_name}) найден: '{row_value}'")
                     else:
                         self.reference_columns_exist[col_code] = False
                         logger.warning(f" ⚠️ Столбец {col_code}: название не соответствует")
                 elif len(self.df_source) > 0:
-                    # Если строка 9 недоступна, проверяем строку 0
                     first_row_value = str(self.df_source.iloc[0, col_idx])
                     if expected_name.lower() in first_row_value.lower():
                         self.reference_columns_exist[col_code] = True
-                        # Берём данные начиная со ВТОРОЙ строки
                         self.reference_data[col_code] = self.df_source.iloc[1:, col_idx].reset_index(drop=True)
                         logger.info(f" ✅ Столбец {col_code} ({expected_name}) найден: '{first_row_value}'")
                     else:
@@ -115,23 +104,23 @@ class DataComparison:
             'AQ': 'AQ_**Стоимость_закупки**', 'AR': 'AR_**Прямая_СС**', 'AS': 'AS_**НР**',
         }
 
-        # Инициализируем специальные метрики как атрибуты объекта
+        # Инициализируем специальные метрики
         self.special_metrics = {
             'human_not_found': 0,
-            'nothing_found': 0,  # НОВОЕ: оба поля (ДП и КП) пустые
-            'date_not_found_year_only': 0,  # НОВОЕ: ДП пустая, КП не валидный квартал
-            'date_not_found_quarter_computed': 0,  # НОВОЕ: ДП пустая, КП валидный квартал
-            'cost_not_found': 0,  # НОВОЕ: ДП и КП заполнены, AQ не формула
-            
+            'nothing_found': 0,
+            'date_not_found_year_only': 0,
+            'date_not_found_quarter_computed': 0,
+            'cost_not_found': 0,
             'program_not_found': 0,
-            
             'both_not_found': 0,
-            'both_not_found_intentional': 0,   # НОВОЕ: специально пропущены
-            'both_not_found_real': 0,          # НОВОЕ: с валидным кварталом
-            
+            'both_not_found_intentional': 0,
+            'both_not_found_real': 0,
             'human_found_program_not': 0,
             'program_found_human_not': 0
         }
+        
+        # Очищаем список примеров перед новым сравнением
+        self.program_found_human_not_examples = []
 
         for col_code in ['AO', 'AP', 'AQ', 'AR', 'AS']:
             if not self.reference_columns_exist.get(col_code, False):
@@ -141,19 +130,19 @@ class DataComparison:
 
             reference_col = self.reference_data[col_code]
             calculated_col = df_calculated[calculated_columns[col_code]]
-            comparison_result = self._compare_column(col_code, reference_col, calculated_col)
+            comparison_result = self._compare_column(col_code, reference_col, calculated_col, df_calculated)
             stats['columns'][col_code] = comparison_result
 
             logger.info(f"Столбец {col_code} ({self.EXPECTED_NAMES[col_code]}):")
             logger.info(f"  Полных совпадений: {comparison_result['exact_matches']} ({comparison_result['exact_match_percent']:.1f}%)")
             logger.info(f" Несовпадений: {comparison_result['mismatches']} ({comparison_result['mismatch_percent']:.1f}%)")
 
-        # Добавляем специальные метрики в статистику
         stats['special_metrics'] = self.special_metrics
+        stats['program_found_human_not_examples'] = self.program_found_human_not_examples
 
         return stats
 
-    def _compare_column(self, col_code: str, reference: pd.Series, calculated: pd.Series) -> Dict:
+    def _compare_column(self, col_code: str, reference: pd.Series, calculated: pd.Series, df_calculated: pd.DataFrame) -> Dict:
         total_rows = len(reference)
         exact_matches = 0
         mismatches = 0
@@ -165,9 +154,7 @@ class DataComparison:
             ref_val = reference.iloc[idx]
             calc_val = calculated.iloc[idx]
             
-            # Для столбца AQ (стоимость) проверяем, является ли значение формулой или нулем
             if col_code == 'AQ':
-                # "Человек не нашёл" - когда в эталоне AQ есть формула (начинается с =) или значение 0
                 is_formula = str(ref_val).startswith('=') if not pd.isna(ref_val) else False
                 is_zero = str(ref_val).strip() == "0" if not pd.isna(ref_val) else False
                 ref_empty = is_formula or is_zero
@@ -179,80 +166,75 @@ class DataComparison:
             if ref_empty:
                 empty_in_reference += 1
                 
-                # Классифицируем только для столбца AQ (стоимость)
                 if col_code == 'AQ':
-                    # Получаем квартал из эталона (столбец AP)
                     quarter_ref = self.reference_data.get('AP')
                     if quarter_ref is not None and idx < len(quarter_ref):
                         quarter_value = quarter_ref.iloc[idx]
                     else:
                         quarter_value = None
                     
-                    # Получаем дату из эталона (столбец AO)
                     date_ref = self.reference_data.get('AO')
                     if date_ref is not None and idx < len(date_ref):
                         date_value = date_ref.iloc[idx]
                     else:
                         date_value = None
                     
-                    # Проверяем, является ли значение в AQ формулой
                     is_formula = str(ref_val).startswith('=СУММ') if not pd.isna(ref_val) else False
                     
-                    # Обновляем общую метрику "человек не нашёл"
                     self.special_metrics['human_not_found'] += 1
                     
-                    # Классифицируем "человек не нашёл"
                     if pd.isna(date_value) or str(date_value).strip() == "":
-                        # Дата пустая
                         if pd.isna(quarter_value) or str(quarter_value).strip() == "":
-                            # Оба поля (ДП и КП) пустые
                             self.special_metrics['nothing_found'] += 1
                         elif self._is_valid_quarter(quarter_value):
-                            # ДП пустая, КП валидный квартал
                             self.special_metrics['date_not_found_quarter_computed'] += 1
                         else:
-                            # ДП пустая, КП не валидный квартал
                             self.special_metrics['date_not_found_year_only'] += 1
                     else:
-                        # Дата заполнена, проверяем стоимость
                         if not is_formula and (pd.isna(ref_val) or str(ref_val).strip() == "" or str(ref_val).strip() == "0"):
-                            # Поле ДП и КП заполнены, AQ не формула и пустая/ноль
                             self.special_metrics['cost_not_found'] += 1
                     
                     if calc_empty:
-                        # Оба не нашли - также классифицируем
                         self.special_metrics['both_not_found'] += 1
                         
                         if pd.isna(date_value) or str(date_value).strip() == "":
-                            # Дата пустая
                             if pd.isna(quarter_value) or str(quarter_value).strip() == "":
-                                # Оба поля (ДП и КП) пустые
                                 self.special_metrics['both_not_found_intentional'] += 1
                             elif self._is_valid_quarter(quarter_value):
-                                # ДП пустая, КП валидный квартал
                                 self.special_metrics['both_not_found_real'] += 1
                             else:
-                                # ДП пустая, КП не валидный квартал
                                 self.special_metrics['both_not_found_intentional'] += 1
                         else:
-                            # Дата заполнена, но стоимость не найдена
                             self.special_metrics['both_not_found_real'] += 1
                     else:
-                        # Человек не нашёл, но программа нашла
+                        # НОВОЕ: Программа нашла, человек нет - сохраняем пример
                         self.special_metrics['program_found_human_not'] += 1
+                        
+                        if len(self.program_found_human_not_examples) < 30:
+                            # Получаем дополнительную информацию из целевой таблицы
+                            # Предполагаем, что столбцы NOMENCLATURE=18, DOCUMENT=21
+                            nomenclature = df_calculated.iloc[idx, 18] if 18 < len(df_calculated.columns) else "N/A"
+                            document = df_calculated.iloc[idx, 21] if 21 < len(df_calculated.columns) else "N/A"
+                            
+                            self.program_found_human_not_examples.append({
+                                'row': idx + 12,  # +12 т.к. данные начинаются с 12-й строки в Excel
+                                'nomenclature': nomenclature,
+                                'document': document,
+                                'calculated_date': df_calculated.iloc[idx]['AO_**Дата_приобретения**'],
+                                'calculated_quarter': df_calculated.iloc[idx]['AP_**Квартал_приобретения**'],
+                                'calculated_cost': calc_val
+                            })
                  
                 continue
             elif calc_empty:
                 empty_in_calculated += 1
                 self.special_metrics['program_not_found'] += 1
                 if col_code == 'AQ':
-                    # Обновляем метрику "человек нашёл, программа нет"
                     self.special_metrics['human_found_program_not'] += 1
                 if len(mismatch_examples) < 10:
                     mismatch_examples.append({'row': idx + 2, 'reference': ref_val, 'calculated': calc_val, 'reason': 'Расчёт не выполнен'})
                 continue
             else:
-                # Оба значения не пустые - обычное сравнение
                 if col_code in ['AQ', 'AR', 'AS']:
                     try:
                         ref_num = float(ref_val)
@@ -276,25 +258,6 @@ class DataComparison:
                         if len(mismatch_examples) < 10:
                             mismatch_examples.append({'row': idx + 2, 'reference': ref_val, 'calculated': calc_val, 'reason': 'Разные значения'})
 
-            if col_code in ['AQ', 'AR', 'AS']:
-                try:
-                    ref_num = float(ref_val)
-                    calc_num = float(calc_val)
-                    if abs(ref_num - calc_num) < 0.01:
-                        exact_matches += 1
-                    else:
-                        mismatches += 1
-                        if len(mismatch_examples) < 10:
-                            mismatch_examples.append({'row': idx + 2, 'reference': f"{ref_num:.2f}", 'calculated': f"{calc_num:.2f}",
-                                                     'difference': f"{calc_num - ref_num:+.2f}", 'reason': 'Разные значения'})
-                except (ValueError, TypeError):
-                    mismatches += 1
-            else:
-                if str(ref_val).strip() == str(calc_val).strip():
-                    exact_matches += 1
-                else:
-                    mismatches += 1
-
         valid_comparisons = exact_matches + mismatches
         exact_match_percent = (exact_matches / valid_comparisons * 100) if valid_comparisons > 0 else 0
         mismatch_percent = (mismatches / valid_comparisons * 100) if valid_comparisons > 0 else 0
@@ -312,7 +275,6 @@ class DataComparison:
 
         report_lines = ["=" * 80, "ОТЧЁТ О СРАВНЕНИИ ЭТАЛОННЫХ И РАСЧЁТНЫХ ДАННЫХ", "=" * 80, f"Всего строк: {stats['total_rows']}", ""]
 
-        # Добавляем детальную статистику, если она доступна
         if 'special_metrics' in stats:
             special_metrics = stats['special_metrics']
             report_lines.append("ДЕТАЛЬНАЯ СТАТИСТИКА:")
@@ -330,11 +292,9 @@ class DataComparison:
             report_lines.append(f"  ✨ Программа нашла, человек нет: {special_metrics['program_found_human_not']}")
             report_lines.append("")
             
-            # Добавляем общее количество записей для проверки
             total_records = special_metrics['human_not_found'] + special_metrics['human_found_program_not']
             report_lines.append(f" Всего записей в классификации: {total_records}")
             
-            # Проверка корректности статистики
             human_total_check = (special_metrics['nothing_found'] +
                                 special_metrics['date_not_found_year_only'] +
                                 special_metrics['date_not_found_quarter_computed'] +
@@ -369,6 +329,23 @@ class DataComparison:
                     if 'difference' in example:
                         report_lines.append(f"      Разница: {example['difference']}")
                     report_lines.append(f"      Причина: {example['reason']}")
+            report_lines.append("")
+
+        # НОВОЕ: Добавляем примеры "Программа нашла, человек нет"
+        if 'program_found_human_not_examples' in stats and stats['program_found_human_not_examples']:
+            report_lines.append("=" * 80)
+            report_lines.append("✨ ПРИМЕРЫ: ПРОГРАММА НАШЛА, ЧЕЛОВЕК НЕТ (до 30 шт)")
+            report_lines.append("=" * 80)
+            
+            for idx, example in enumerate(stats['program_found_human_not_examples'][:30], 1):
+                report_lines.append(f"\n{idx}. Строка Excel: {example['row']}")
+                report_lines.append(f"   Номенклатура: {example['nomenclature']}")
+                report_lines.append(f"   Документ: {example['document']}")
+                report_lines.append(f"   Программа нашла:")
+                report_lines.append(f"     - Дата: {example['calculated_date']}")
+                report_lines.append(f"     - Квартал: {example['calculated_quarter']}")
+                report_lines.append(f"     - Стоимость: {example['calculated_cost']}")
+            
             report_lines.append("")
 
         report_lines.append("=" * 80)
