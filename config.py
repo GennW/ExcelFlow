@@ -2,6 +2,10 @@
 Конфигурация приложения ExcelCostCalculator
 """
 
+# Структура таблицы Excel
+HEADER_ROW = 11  # Строка с заголовками столбцов
+DATA_START_ROW = 12  # Первая строка с данными
+
 # Целевая таблица "СК ТПХ_1 пг"
 TARGET_COLUMNS = {
     'NOMENCLATURE': 18,

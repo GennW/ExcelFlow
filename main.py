@@ -2,7 +2,6 @@
 import argparse
 import sys
 import gc
-import os
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
@@ -154,13 +153,6 @@ def main():
             print("\n" + report)
 
             report_filename = args.output.replace('.xlsx', '_comparison_report.txt')
-            # Проверяем, существует ли уже файл отчета, и если да - переименовываем его
-            if os.path.exists(report_filename):
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_filename = f"{report_filename[:-4]}_{timestamp}.txt"
-                os.rename(report_filename, backup_filename)
-                logger.info(f"Существующий отчет перемещён в: {backup_filename}")
-            
             with open(report_filename, 'w', encoding='utf-8') as f:
                 f.write(report)
             logger.info(f"Отчёт сравнения сохранён: {report_filename}")
