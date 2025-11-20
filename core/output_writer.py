@@ -24,7 +24,7 @@ def write_results(input_file: str, output_file: str, df_result: pd.DataFrame, ta
     try:
         wb = load_workbook(input_file)
         ws = wb[target_sheet]
-        logger.info(f"Открыт файл для записи: {input_file}")
+        logger.info(f"Открыт шаблон: {input_file}")
 
         # Определяем первый свободный столбец после существующих данных
         start_col = ws.max_column + 1
@@ -63,7 +63,7 @@ def write_results(input_file: str, output_file: str, df_result: pd.DataFrame, ta
 
         logger.info(f"Записано {len(ao_values)} строк данных, начиная со строки 12")
         wb.save(output_file)
-        logger.info(f"Файл успешно сохранён: {output_file}")
+        logger.info(f"Результат успешно сохранён в: {output_file}")
         
     except Exception as e:
         logger.error(f"Ошибка при записи: {e}")
